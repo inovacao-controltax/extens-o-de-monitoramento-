@@ -1,9 +1,10 @@
 import { SAMPLE } from '../src/mock.js';
 import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
+import { puxarTreinados } from '../src/hub-treinados.js';
 import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
-import { loadSnapshot } from '../src/snapshot.js';
+import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel } from '../src/snapshot.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv } from '../src/historico.js';
 
 const $ = id => document.getElementById(id);
@@ -11,6 +12,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const fmt = iso => iso ? new Date(iso + 'T00:00').toLocaleDateString('pt-BR') : '—';
 const ic = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const I = {
+  list: ic('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>'),
   home: ic('<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>'),
   file: ic('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
   folder: ic('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
@@ -64,12 +66,12 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
-let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, hist = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, hist = null, snapCompleto = null, snapEst = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
-const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
+const real = () => snapEst;      // a coleta estável: a terminada ou, enquanto a nova é lida, a última completa (os números não sobem e descem)
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
 const source = () => (real() ? { docs: real().docs, notif: nsnap, solic: ssnap && ssnap.porCnpj, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
-const recompute = () => { R = analyze(source(), cfg); if (nsnap) R.notificacoes = checkNotificacoesOnvio(nsnap, cfg); marcarIcone(); };   // notificações lidas do Onvio valem mesmo sem a coleta das empresas
+const recompute = () => { snapEst = snapshotEstavel(snap, snapCompleto); R = analyze(source(), cfg); if (nsnap) R.notificacoes = checkNotificacoesOnvio(nsnap, cfg); marcarIcone(); };   // notificações lidas do Onvio valem mesmo sem a coleta das empresas
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
   try { const n = real() ? Object.values(R).reduce((s, l) => s + l.length, 0) : 0; chrome.action.setBadgeText({ text: n ? String(n) : '' }); chrome.action.setBadgeBackgroundColor({ color: '#C2000C' }); } catch (e) { /* fora da extensão */ }
@@ -133,11 +135,11 @@ function atualizarPill() {
   pill.title = rod ? (andamento.msg || '') : '';
 }
 function renderNav() {
-  const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, data(k).length]), ['coleta', 'Coleta do Onvio', I.sync, 0]];
+  const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, data(k).length]), ['envios', 'Últimos envios', I.list, 0], ['coleta', 'Coleta do Onvio', I.sync, 0]];
   const navHtml = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('');
   if (navHtml !== navAnt) { navAnt = navHtml; $('nav').innerHTML = navHtml; $('nav').querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.k))); }
   if (state.view === 'config') $('cfgBtn').setAttribute('aria-current', 'page'); else $('cfgBtn').removeAttribute('aria-current');
-  $('seg').hidden = state.view === 'config' || state.view === 'coleta';
+  $('seg').hidden = state.view === 'config' || state.view === 'coleta' || state.view === 'envios';
   const segHtml = SETORES.map(s => `<button type="button" aria-pressed="${s === state.setor}" data-s="${s}">${s}</button>`).join('');
   if (segHtml !== segAnt) { segAnt = segHtml; $('seg').innerHTML = segHtml; $('seg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.setor = b.dataset.s; render(); })); }
 }
@@ -154,13 +156,37 @@ function tableHtml(k) {
     return `<div class="empty"><b>Ninguém está sem aviso de nova solicitação.</b><p>${conf} funcionário(s) têm configuração salva e todos recebem o aviso (e-mail ou sistema). Outros ${padrao} nunca tiveram a configuração alterada (no Onvio aparecem desmarcados) e não estão sendo contados: marque a opção em Coleta para listá-los.</p></div>`;
   }
   if (!rows.length && real() && k === 'semEnvio' && cfg.trained.length && !term() && state.setor === 'Todos') return emDiaHtml();
-  if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
+  if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return `<div class="empty"><b>Lista de treinados vazia.</b><p>Sem a lista, o monitor não sabe quais empresas acompanhar. ${cfg.hubCodigo ? 'Puxe do Control Hub (precisa do Hub aberto numa aba do claude.ai) ou cadastre em Configurações.' : 'Cole o código de pareamento do Hub em Configurações para puxar sozinho, ou cadastre a lista à mão.'}</p><div class="row" style="display:flex;gap:8px;justify-content:center;margin-top:10px">${cfg.hubCodigo ? '<button type="button" class="btn btn-primary" data-puxar>Puxar do Hub agora</button>' : ''}<button type="button" class="btn" data-go="config">Abrir Configurações</button></div></div>`;
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;
   return `<div class="tbl-wrap"><table><thead><tr>${t.cols.map(([n, c = '']) => `<th class="${c}">${n}</th>`).join('')}</tr></thead><tbody>${
     rows.slice(0, state.lim[k] || LIM).map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, state.lim[k] || LIM)} de ${rows.length} itens${rows.length > (state.lim[k] || LIM) ? ` · <button class="btn btn-sm" data-mais="${k}" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Fonte: ${k === 'notificacoes' ? 'Onvio' : fonteNome().toLowerCase()}</span></div>`;
 }
 const silAtivas = () => ((cfg && cfg.silenciadas) || []).filter(x => silenciadaAgora(x));
-function silBarHtml() { const n = silAtivas().length; return n ? `<div class="tbl-foot"><span>${n} empresa${n > 1 ? 's' : ''} silenciada${n > 1 ? 's' : ''}</span><button type="button" class="btn btn-sm" data-sil-ver>Ver silenciadas</button></div>` : ''; }
+function silBarHtml() { const n = silAtivas().length; return `<div class="tbl-foot"><span>${n ? `${n} empresa${n > 1 ? 's' : ''} silenciada${n > 1 ? 's' : ''}` : ''}</span><span style="display:flex;gap:8px">${n ? '<button type="button" class="btn btn-sm" data-sil-ver>Ver silenciadas</button>' : ''}<button type="button" class="btn btn-sm" data-go="envios">Ver últimos envios de todas as empresas</button></span></div>`; }
+// Últimos envios de TODAS as empresas lidas (e das treinadas, mesmo sem nada lido): o registro para quem monitora conferir que está tudo certo.
+function ultimosEnvios() {
+  const src = source(), ult = new Map(), trein = new Map((cfg.trained || []).map(t => [t.cnpj, t]));
+  for (const d of src.docs || []) {
+    if (d.origem !== 'cliente' || !d.data) continue;
+    const x = ult.get(d.cnpj); if (!x || d.data > x.data) ult.set(d.cnpj, { empresa: d.empresa, cnpj: d.cnpj, data: d.data, fonte: 'arquivo', detalhe: d.arquivo });
+  }
+  for (const [cnpj, iso] of Object.entries(src.solic || {})) { const x = ult.get(cnpj); if (!x || iso > x.data) ult.set(cnpj, { empresa: (trein.get(cnpj) || x || {}).empresa || formatCnpj(cnpj), cnpj, data: iso, fonte: 'solicitação', detalhe: '' }); }
+  for (const t of trein.values()) if (!ult.has(t.cnpj)) ult.set(t.cnpj, { empresa: t.empresa, cnpj: t.cnpj, data: '', fonte: '', detalhe: '' });
+  const hoje = Date.now();
+  return [...ult.values()].map(x => ({ ...x, treinada: trein.has(x.cnpj), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
+}
+function enviosHtml() {
+  if (lendoSemDados() || !real()) return '<div class="empty"><b>Nada lido ainda.</b><p>Os últimos envios aparecem assim que as primeiras empresas forem lidas.</p></div>';
+  let rows = ultimosEnvios();
+  const q = term(); if (q) rows = rows.filter(r => `${r.empresa} ${r.cnpj} ${r.detalhe}`.toLowerCase().includes(q));
+  if (state.soTreinadas) rows = rows.filter(r => r.treinada);
+  rows.sort((a, b) => (b.dias ?? 1e6) - (a.dias ?? 1e6));         // quem está há mais tempo sem enviar (ou nunca) primeiro
+  const lim = state.lim.envios || LIM, total = rows.length, nTrein = rows.filter(r => r.treinada).length;
+  const limite = cfg.diasSemEnvio;
+  const sit = r => r.dias === null ? badge('Nenhum registrado', 's-late') : r.dias > limite ? badge(`${r.dias} dias`, 's-warn') : badge('Em dia', 's-ok');
+  return `<div class="toolbar"><span class="grow">${total} empresa${total === 1 ? '' : 's'}${state.soTreinadas ? '' : ` · ${nTrein} treinada${nTrein === 1 ? '' : 's'}`}</span><div class="seg" role="group" aria-label="Quais empresas"><button type="button" data-env-trein="0" aria-pressed="${!state.soTreinadas}">Todas as lidas</button><button type="button" data-env-trein="1" aria-pressed="${!!state.soTreinadas}">Só treinadas</button></div></div>
+    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último envio</th><th>Há</th><th>Origem</th><th>Situação</th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${sit(r)}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${rows.length}${rows.length > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Só arquivos do cliente${ssnap ? ' e Solicitações (empresas treinadas)' : ''}; empresas sem nenhum arquivo do cliente só aparecem se forem treinadas.</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
+}
 // Nenhuma treinada sem envio: mostra POR QUE (cada empresa com a última atividade e de onde veio), para dar para conferir a leitura.
 function emDiaHtml() {
   const src = source(), lista = statusEnvio(src.docs, cfg.trained, new Date(), src.solic).sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
@@ -168,7 +194,7 @@ function emDiaHtml() {
   const avisos = [];
   if (!ssnap) avisos.push('As Solicitações de Serviço ainda não foram lidas: por enquanto só os arquivos contam como envio.');
   else if (ssnap.semCodigo) avisos.push(`${ssnap.semCodigo} empresa(s) treinada(s) sem código no Onvio: para elas as Solicitações não foram consideradas.`);
-  if (real().lendo) avisos.push('A leitura das empresas ainda está em andamento; as treinadas são lidas primeiro.');
+  if (real().lendo || real()._atualizando) avisos.push('Uma leitura nova das empresas está em andamento; estes números são os da última leitura completa e atualizam quando ela terminar.');
   const emDia = lista.filter(r => r.dias !== null && r.dias <= cfg.diasSemEnvio).length;
   const titulo = emDia === lista.length ? (lista.length === 1 ? `A empresa treinada usou o portal nos últimos ${cfg.diasSemEnvio} dias.` : `Todas as ${lista.length} empresas treinadas usaram o portal nos últimos ${cfg.diasSemEnvio} dias.`) : `Nenhuma empresa para acompanhar agora: ${emDia} de ${lista.length} usaram o portal nos últimos ${cfg.diasSemEnvio} dias e as outras estão silenciadas ou em carência desde o treinamento.`;
   return `<div class="empty"><b>${titulo}</b><p>Confira abaixo a última atividade de cada uma e de onde veio (arquivo enviado ou Solicitação de Serviço).</p></div>
@@ -189,7 +215,7 @@ function hojeHtml() {
   const top = all.sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1))[0];
   const semLeitura = lendoSemDados() || (!!real() && !(real().qualidade.lidas > 0) && !real().lendo);
   const hero = `<div class="card hero"><div class="ring"><svg viewBox="0 0 120 120"><circle class="bg" cx="60" cy="60" r="52"/><circle class="warn" cx="60" cy="60" r="52" stroke-dasharray="${C}"/><circle class="ok" cx="60" cy="60" r="52" stroke-dasharray="${okLen} ${C}"/></svg><b>${semLeitura ? '—' : pct + '%'}</b></div>
-    <div><span class="eyebrow">Carteira no portal · ${real() ? (real().lendo ? 'lendo ao vivo' : 'coleta do Onvio') : lendoSemDados() ? 'lendo agora' : 'coleta de exemplo'} ${hora()}</span>
+    <div><span class="eyebrow">Carteira no portal · ${real() ? (real().lendo ? 'lendo ao vivo' : real()._atualizando ? 'última coleta completa · atualizando' : 'coleta do Onvio') : lendoSemDados() ? 'lendo agora' : 'coleta de exemplo'} ${hora()}</span>
     <h2>${semLeitura ? (lendoSemDados() ? 'Lendo o Onvio…' : 'Nada foi lido ainda') : n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
     <p>${semLeitura ? (lendoSemDados() ? 'Os resultados aparecem aqui assim que as primeiras empresas forem lidas.' : 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.') : `${Math.max(0, universo() - empresasComPend)} de ${universo()} empresas sem pendência de documentos`}</p>
     ${top ? `<div class="inner"><span class="badge ${TABS[top.k].sev}">Mais urgente</span><b>${esc(TABS[top.k].step(top.r)[0])}</b></div>` : ''}
@@ -216,14 +242,15 @@ function render(animar = false) {
     $('sub').textContent = 'Leitura do portal pela sua sessão, só leitura';
     atualizarPill(); htmlAnt = ''; vistaAnt = 'coleta';
     $('view').innerHTML = '<div class="reveal" id="coletaRoot"></div>';
-    renderColeta($('coletaRoot'), { toast, onChanged: async () => { snap = await loadSnapshot(); recompute(); renderNav(); atualizarPill(); } });
+    renderColeta($('coletaRoot'), { toast, onChanged: async () => { snap = await loadSnapshot(); snapCompleto = (await loadSnapshotCompleto()) || snapCompleto; recompute(); renderNav(); atualizarPill(); } });
     return renderNav();
   }
   const hoje = state.view === 'hoje';
-  $('title').textContent = hoje ? 'Hoje' : TABS[state.view].label;
-  $('sub').textContent = hoje ? 'Portal do Cliente · ControlTax' : TABS[state.view].hint;
+  const envios = state.view === 'envios';
+  $('title').textContent = hoje ? 'Hoje' : envios ? 'Últimos envios' : TABS[state.view].label;
+  $('sub').textContent = hoje ? 'Portal do Cliente · ControlTax' : envios ? 'Quando cada empresa usou o portal pela última vez' : TABS[state.view].hint;
   atualizarPill();
-  const html = hoje ? hojeHtml() : `<div class="toolbar"><span class="grow">${data(state.view).length} itens</span></div>${blockHtml(state.view)}`;
+  const html = hoje ? hojeHtml() : envios ? enviosHtml() : `<div class="toolbar"><span class="grow">${data(state.view).length} itens</span></div>${blockHtml(state.view)}`;
   // Atualização automática (leitura ao vivo): sem animação, sem perder a rolagem e sem refazer o que não mudou.
   if (!animar && html === htmlAnt && vistaAnt === state.view) return renderNav();
   const y = window.scrollY;
@@ -235,6 +262,12 @@ function render(animar = false) {
   v.querySelectorAll('[data-go]').forEach(e => e.addEventListener('click', () => go(e.dataset.go)));
   v.querySelectorAll('[data-blk]').forEach(e => e.addEventListener('click', () => { state.open[e.dataset.blk] = !state.open[e.dataset.blk]; render(); }));
   v.querySelectorAll('[data-dismiss]').forEach(e => e.addEventListener('click', () => { state.dispensados.add(e.dataset.dismiss); render(); }));
+  v.querySelectorAll('[data-puxar]').forEach(e => e.addEventListener('click', async () => {
+    e.disabled = true; e.textContent = 'Perguntando ao Hub…';
+    const r = await puxarTreinados();
+    if (r.ok) { cfg = await loadConfig(); recompute(); renderNav(); render(false); toast(`${r.n} empresas treinadas puxadas do Hub`); } else { toast(r.msg || 'Não deu certo', 'warn'); e.disabled = false; e.textContent = 'Puxar do Hub agora'; }
+  }));
+  v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-sil]').forEach(e => e.addEventListener('click', () => abrirSilenciar(e.dataset.sil)));
   v.querySelectorAll('[data-sil-ver]').forEach(e => e.addEventListener('click', abrirSilenciadas));
@@ -327,8 +360,8 @@ if (camada) {
   $('fechar').addEventListener('click', fechar);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').classList.contains('open')) fechar(); });
 }
-Promise.all([loadConfig(), loadSnapshot()]).then(([c, sn]) => {
-  cfg = c; snap = sn; recompute(); setTimeout(() => render(true), 300);
+Promise.all([loadConfig(), loadSnapshot(), loadSnapshotCompleto()]).then(([c, sn, comp]) => {
+  cfg = c; snap = sn; snapCompleto = comp || (sn && sn.fonte === 'onvio' && !sn.lendo && !sn.parcial ? sn : null); recompute(); setTimeout(() => render(true), 300);
 });
 
 // A leitura automática grava a coleta e o andamento no armazenamento: o painel acompanha sozinho, sem clique.
@@ -349,8 +382,9 @@ try {
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
     if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
     if (ch['monitor-gestta-estado']) gestado = ch['monitor-gestta-estado'].newValue || null;
-    if (ch['monitor-snapshot']) { snap = await loadSnapshot(); }
-    if (ch['monitor-snapshot'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
+    if (ch['monitor-snapshot']) { snap = await loadSnapshot(); if (snap && snap.fonte === 'onvio' && !snap.lendo && !snap.parcial) snapCompleto = snap; }
+    if (ch['monitor-snapshot-completo']) snapCompleto = ch['monitor-snapshot-completo'].newValue || snapCompleto;
+    if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_HIST]).then(r => { hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
