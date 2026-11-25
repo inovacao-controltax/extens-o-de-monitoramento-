@@ -15,7 +15,7 @@
     <nav id="nav"></nav>
     <div class="rail-foot">
       <button class="rail-btn" id="themeBtn" type="button" title="Tema claro/escuro" aria-label="Alternar tema"></button>
-      <button class="rail-btn" type="button" title="Configurações (Fase 2)" aria-label="Configurações" disabled></button>
+      <button class="rail-btn" id="cfgBtn" type="button" title="Configurações" aria-label="Configurações"></button>
     </div>
   </aside>
   <div class="shell">
@@ -33,6 +33,7 @@
     </header>
     <main id="view" aria-live="polite"></main>
   </div>
+  <div class="overlay" id="overlay"></div>
   <div class="toast" id="toast" role="status"></div>
   <script type="module" src="hub.js"></script>
 </body>

@@ -1,4 +1,5 @@
 import { MOCK } from '../src/mock.js';
+import { renderConfig } from './config-view.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -20,7 +21,7 @@ const I = {
 };
 $('themeBtn').innerHTML = I.moon;
 $('bell').innerHTML = I.bell;
-document.querySelector('.rail-foot .rail-btn:last-child').innerHTML = I.gear;
+$('cfgBtn').innerHTML = I.gear;
 
 const secClass = s => ({ 'Pessoal': 'sec-pessoal', 'Contábil': 'sec-contabil', 'Fiscal': 'sec-fiscal', 'Financeiro': 'sec-financeiro' }[s] || 'sec-outro');
 const sector = s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`;
@@ -62,12 +63,14 @@ const data = k => MOCK[k].filter(r => {
 });
 const total = () => KEYS.reduce((n, k) => n + data(k).length, 0);
 
-function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), 4000); }
+function toast(m, kind = 'ok') { const t = $('toast'); t.textContent = m; t.dataset.kind = kind; t.classList.add('show'); clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), 4000); }
 
 function renderNav() {
   const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, data(k).length])];
   $('nav').innerHTML = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('');
   $('nav').querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.k)));
+  if (state.view === 'config') $('cfgBtn').setAttribute('aria-current', 'page'); else $('cfgBtn').removeAttribute('aria-current');
+  $('seg').hidden = state.view === 'config';
   $('seg').innerHTML = SETORES.map(s => `<button type="button" aria-pressed="${s === state.setor}" data-s="${s}">${s}</button>`).join('');
   $('seg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.setor = b.dataset.s; render(); }));
 }
@@ -105,6 +108,14 @@ function hojeHtml() {
 }
 
 function render() {
+  if (state.view === 'config') {
+    $('title').textContent = 'Configurações';
+    $('sub').textContent = 'Padrões e listas usados nas verificações';
+    $('stamp').textContent = `coletado ${new Date(MOCK.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    $('view').innerHTML = '<div class="reveal" id="cfgRoot"></div>';
+    renderConfig($('cfgRoot'), { toast });
+    return renderNav();
+  }
   const hoje = state.view === 'hoje';
   $('title').textContent = hoje ? 'Hoje' : TABS[state.view].label;
   $('sub').textContent = hoje ? 'Portal do Cliente · ControlTax' : TABS[state.view].hint;
@@ -119,7 +130,8 @@ function render() {
 }
 function go(k) { state.view = k; render(); window.scrollTo(0, 0); }
 
-$('search').addEventListener('input', render);
+$('search').addEventListener('input', () => { if (state.view !== 'config') render(); });
+$('cfgBtn').addEventListener('click', () => go('config'));
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('search').focus(); } });
 $('bell').addEventListener('click', () => toast('Sem alertas novos'));
 $('refresh').addEventListener('click', () => toast('Coleta real disponível na Fase 4'));
