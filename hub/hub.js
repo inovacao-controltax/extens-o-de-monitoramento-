@@ -2,7 +2,7 @@ import { SAMPLE } from '../src/mock.js';
 import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
 import { puxarTreinados } from '../src/hub-treinados.js';
 import { montarAviso, linkZimbra } from '../src/aviso.js';
-import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio } from '../src/rules.js';
+import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel } from '../src/snapshot.js';
@@ -165,28 +165,45 @@ function tableHtml(k) {
 const silAtivas = () => ((cfg && cfg.silenciadas) || []).filter(x => silenciadaAgora(x));
 function silBarHtml() { const n = silAtivas().length; return `<div class="tbl-foot"><span>${n ? `${n} empresa${n > 1 ? 's' : ''} silenciada${n > 1 ? 's' : ''}` : ''}</span><span style="display:flex;gap:8px">${n ? '<button type="button" class="btn btn-sm" data-sil-ver>Ver silenciadas</button>' : ''}<button type="button" class="btn btn-sm" data-go="envios">Ver últimos envios de todas as empresas</button></span></div>`; }
 // Últimos envios de TODAS as empresas lidas (e das treinadas, mesmo sem nada lido): o registro para quem monitora conferir que está tudo certo.
+// Uso do portal = o mais recente entre arquivo enviado pelo cliente e atividade do cliente nas Solicitações (de todas as empresas). A empresa treinada
+// vale pela raiz do CNPJ (o Hub e o Onvio podem cadastrar estabelecimentos diferentes do mesmo grupo).
 function ultimosEnvios() {
-  const src = source(), ult = new Map(), trein = new Map((cfg.trained || []).map(t => [t.cnpj, t]));
+  const src = source(), ult = new Map(), nomes = new Map(), raizes = new Set((cfg.trained || []).map(t => raizDoCnpj(t.cnpj)));
+  for (const e of (real() && real().empresas) || []) { nomes.set(e.cnpj, e.empresa); if (!ult.has(e.cnpj)) ult.set(e.cnpj, { empresa: e.empresa, cnpj: e.cnpj, data: '', fonte: '', detalhe: '' }); }
   for (const d of src.docs || []) {
     if (d.origem !== 'cliente' || !d.data) continue;
-    const x = ult.get(d.cnpj); if (!x || d.data > x.data) ult.set(d.cnpj, { empresa: d.empresa, cnpj: d.cnpj, data: d.data, fonte: 'arquivo', detalhe: d.arquivo });
+    const x = ult.get(d.cnpj);
+    if (!x || !x.data || d.data > x.data) ult.set(d.cnpj, { empresa: d.empresa || (x && x.empresa) || formatCnpj(d.cnpj), cnpj: d.cnpj, data: d.data, fonte: 'arquivo', detalhe: d.arquivo });
   }
-  for (const [cnpj, iso] of Object.entries(src.solic || {})) { const x = ult.get(cnpj); if (!x || iso > x.data) ult.set(cnpj, { empresa: (trein.get(cnpj) || x || {}).empresa || formatCnpj(cnpj), cnpj, data: iso, fonte: 'solicitação', detalhe: '' }); }
-  for (const t of trein.values()) if (!ult.has(t.cnpj)) ult.set(t.cnpj, { empresa: t.empresa, cnpj: t.cnpj, data: '', fonte: '', detalhe: '' });
+  for (const [cnpj, iso] of Object.entries(src.solic || {})) {
+    const x = ult.get(cnpj);
+    if (!x || !x.data || iso > x.data) ult.set(cnpj, { empresa: (x && x.empresa) || nomes.get(cnpj) || formatCnpj(cnpj), cnpj, data: iso, fonte: 'solicitação', detalhe: '' });
+  }
+  const tem = new Set([...ult.keys()].map(raizDoCnpj));
+  for (const t of cfg.trained || []) if (!tem.has(raizDoCnpj(t.cnpj))) ult.set(t.cnpj, { empresa: t.empresa, cnpj: t.cnpj, data: '', fonte: '', detalhe: '' });
   const hoje = Date.now();
-  return [...ult.values()].map(x => ({ ...x, treinada: trein.has(x.cnpj), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
+  return [...ult.values()].map(x => ({ ...x, treinada: raizes.has(raizDoCnpj(x.cnpj)), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
 }
 function enviosHtml() {
   if (lendoSemDados() || !real()) return '<div class="empty"><b>Nada lido ainda.</b><p>Os últimos envios aparecem assim que as primeiras empresas forem lidas.</p></div>';
-  let rows = ultimosEnvios();
-  const q = term(); if (q) rows = rows.filter(r => `${r.empresa} ${r.cnpj} ${r.detalhe}`.toLowerCase().includes(q));
-  if (state.soTreinadas) rows = rows.filter(r => r.treinada);
-  rows.sort((a, b) => (b.dias ?? 1e6) - (a.dias ?? 1e6));         // quem está há mais tempo sem enviar (ou nunca) primeiro
-  const lim = state.lim.envios || LIM, total = rows.length, nTrein = rows.filter(r => r.treinada).length;
   const limite = cfg.diasSemEnvio;
-  const sit = r => r.dias === null ? badge('Nenhum registrado', 's-late') : r.dias > limite ? badge(`${r.dias} dias`, 's-warn') : badge('Em dia', 's-ok');
-  return `<div class="toolbar"><span class="grow">${total} empresa${total === 1 ? '' : 's'}${state.soTreinadas ? '' : ` · ${nTrein} treinada${nTrein === 1 ? '' : 's'}`}</span><div class="seg" role="group" aria-label="Quais empresas"><button type="button" data-env-trein="0" aria-pressed="${!state.soTreinadas}">Todas as lidas</button><button type="button" data-env-trein="1" aria-pressed="${!!state.soTreinadas}">Só treinadas</button></div></div>
-    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último envio</th><th>Há</th><th>Origem</th><th>Situação</th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${sit(r)}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${rows.length}${rows.length > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Só arquivos do cliente${ssnap ? ' e Solicitações (empresas treinadas)' : ''}; empresas sem nenhum arquivo do cliente só aparecem se forem treinadas.</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
+  const classe = r => r.dias === null ? 'semreg' : r.dias > limite ? 'sem' : 'uso';
+  let base = ultimosEnvios();
+  const q = term(); if (q) base = base.filter(r => `${r.empresa} ${r.cnpj} ${r.detalhe}`.toLowerCase().includes(q));
+  if (state.soTreinadas) base = base.filter(r => r.treinada);
+  const cont = { uso: 0, sem: 0, semreg: 0 }; base.forEach(r => cont[classe(r)]++);
+  const sel = state.envClasse || 'todas';
+  let rows = sel === 'todas' ? base : base.filter(r => classe(r) === sel);
+  rows.sort((a, b) => (b.dias ?? 1e6) - (a.dias ?? 1e6));         // quem está há mais tempo sem usar (ou sem registro) primeiro
+  const lim = state.lim.envios || LIM, total = rows.length;
+  const sit = r => ({ uso: badge('Em uso', 's-ok'), sem: badge('Sem uso', 's-warn'), semreg: badge('Sem registro', 's-late') })[classe(r)];
+  const chip = (k, rot, n) => `<button type="button" data-env-classe="${k}" aria-pressed="${sel === k}">${rot} <small>${n}</small></button>`;
+  const todasSolic = ssnap && ssnap.escopo === 'todas-v2';
+  const nota = `Uso do portal = arquivo enviado pelo cliente ou atividade do cliente em Solicitações de Serviço${todasSolic ? ' (de todas as empresas)' : ' (por enquanto só das treinadas: a leitura das demais ainda não terminou)'}. Matriz e filiais contam como uma empresa só nas treinadas. Sem uso = mais de ${limite} dias. Sem registro = nenhum arquivo nem solicitação do cliente encontrados.`;
+  return `<div class="toolbar"><span class="grow">${base.length} empresa${base.length === 1 ? '' : 's'}</span>
+      <div class="seg" role="group" aria-label="Situação">${chip('todas', 'Todas', base.length)}${chip('uso', 'Em uso', cont.uso)}${chip('sem', 'Sem uso', cont.sem)}${chip('semreg', 'Sem registro', cont.semreg)}</div>
+      <div class="seg" role="group" aria-label="Quais empresas"><button type="button" data-env-trein="0" aria-pressed="${!state.soTreinadas}">Todas as lidas</button><button type="button" data-env-trein="1" aria-pressed="${!!state.soTreinadas}">Só treinadas</button></div></div>
+    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último uso</th><th>Há</th><th>Origem</th><th>Situação</th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${sit(r)}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${total}${total > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span style="max-width:62ch;text-align:right">${esc(nota)}</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
 }
 // Nenhuma treinada sem envio: mostra POR QUE (cada empresa com a última atividade e de onde veio), para dar para conferir a leitura.
 function emDiaHtml() {
@@ -268,6 +285,7 @@ function render(animar = false) {
     const r = await puxarTreinados();
     if (r.ok) { cfg = await loadConfig(); recompute(); renderNav(); render(false); toast(`${r.n} empresas treinadas puxadas do Hub`); } else { toast(r.msg || 'Não deu certo', 'warn'); e.disabled = false; e.textContent = 'Puxar do Hub agora'; }
   }));
+  v.querySelectorAll('[data-env-classe]').forEach(e => e.addEventListener('click', () => { state.envClasse = e.dataset.envClasse; render(false); }));
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-avisar]').forEach(e => e.addEventListener('click', () => abrirAviso(e.dataset.avisar)));

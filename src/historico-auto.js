@@ -19,7 +19,7 @@ export async function rodarHistorico() {
     if (h && h.fontes === fontes) return;                       // nada mudou desde a última conta
     const prontos = new Set();
     if (real) { prontos.add('nomenclatura'); prontos.add('pastas'); }
-    if (real && (cfg.trained || []).length && solic && solic.assinatura === assinaturaTreinadas(cfg.trained)) prontos.add('semEnvio');   // sem as Solicitações lidas, "sem envio" daria alarme falso
+    if (real && (cfg.trained || []).length && solic && solic.escopo === 'todas-v2' && solic.assinatura === assinaturaTreinadas(cfg.trained)) prontos.add('semEnvio');   // sem as Solicitações lidas, "sem envio" daria alarme falso
     if (notif) prontos.add('notificacoes');
     if (!prontos.size) return;
     const R = analyze({ docs: real ? snap.docs : [], trained: [], notif, solic: solic && solic.porCnpj, users: [] }, cfg);

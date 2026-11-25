@@ -51,8 +51,8 @@ async function leituraCompleta(cfg, avisa) {
   const { clientes, falhaCnd } = await listarClientes(f, { pausa, onLista: l => avisa({ estado: 'rodando', feito: 0, total: 0, msg: `Lendo a lista de empresas… ${l.lidos}${l.total ? ' de ' + l.total : ''}` }) });
   try { await st().set({ [CHAVE_CLIENTES]: { em: Date.now(), clientes: compactos(clientes) } }); } catch (e) { /* cache é só para a releitura rápida */ }
   const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
-  const prioridade = new Set((cfg.trained || []).map(t => t.cnpj));
-  const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
+  const prioridade = new Set((cfg.trained || []).flatMap(t => [t.cnpj, String(t.cnpj).slice(0, 8)]));   // treinadas e seus outros estabelecimentos (mesma raiz) primeiro
+  const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, empresas: r.empresas || [], totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
   const t0 = Date.now();
   avisa({ estado: 'rodando', feito: 0, total: ativas, msg: `0 de ${ativas} empresas` });
   const r = await coletar(f, clientes, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true, prioridade,
@@ -69,8 +69,8 @@ async function leituraCompleta(cfg, avisa) {
 async function leituraRapida(cfg, snap, avisa) {
   const guardado = (await st().get(CHAVE_CLIENTES))[CHAVE_CLIENTES];
   if (!guardado || !guardado.clientes) return;
-  const prioridade = new Set(cfg.trained.map(t => t.cnpj));
-  const alvo = guardado.clientes.filter(c => prioridade.has(c.cnpj) && !c.inativo && c.ids.length);
+  const raizes = new Set(cfg.trained.map(t => String(t.cnpj).slice(0, 8)));
+  const alvo = guardado.clientes.filter(c => raizes.has(String(c.cnpj || '').slice(0, 8)) && !c.inativo && c.ids.length);
   if (!alvo.length) return;
   const { f } = criarFetcher();
   avisa({ estado: 'rodando', feito: 0, total: alvo.length, msg: `Atualizando ${alvo.length} empresas treinadas…`, rapida: true });
@@ -123,19 +123,20 @@ export async function rodarTreinados() {
   } catch (x) { /* só os treinados falharam */ }
 }
 /**
- * Último uso do portal pelas Solicitações de Serviço, só das empresas treinadas (poucas): a cada hora, ou quando a lista de treinadas muda.
+ * Último uso do portal pelas Solicitações de Serviço, de TODAS as empresas (só as listas + os trâmites que precisam, ver solicitacoes.js):
+ * a cada hora. O "último envio" só por arquivos não é confiável (empresa que só usa Solicitações parecia anos parada), então as duas fontes valem.
  * Falhar aqui não derruba o resto. Guarda só CNPJ -> data (monitor-solicitacoes); recuo de 10 min depois de uma falha.
  */
 export const CHAVE_SOLIC = 'monitor-solicitacoes', CHAVE_SOLIC_ESTADO = 'monitor-solicitacoes-estado';
+export const ESCOPO_SOLIC = 'todas-v2';
 let lendoSolic = false;
 export async function rodarSolicitacoes() {
   if (lendoSolic) return;
   try {
     const cfg = await loadConfig();
-    if (cfg.autoLer === false || !(cfg.trained || []).length) return;
+    if (cfg.autoLer === false) return;
     const g = (await st().get(CHAVE_SOLIC))[CHAVE_SOLIC], e = (await st().get(CHAVE_SOLIC_ESTADO))[CHAVE_SOLIC_ESTADO], agora = Date.now();
-    const mesmas = g && g.assinatura === assinaturaTreinadas(cfg.trained);
-    if (mesmas && agora - (g.em || 0) < 3600 * 1000) return;
+    if (g && g.escopo === ESCOPO_SOLIC && agora - (g.em || 0) < 3600 * 1000 && g.assinatura === assinaturaTreinadas(cfg.trained)) return;
     if (e && e.estado === 'lendo' && agora - e.em < 5 * 60 * 1000) return;
     if (e && e.estado !== 'lendo' && e.estado !== 'ok' && agora - e.em < 10 * 60 * 1000) return;
     const guardado = (await st().get(CHAVE_CLIENTES))[CHAVE_CLIENTES];
@@ -144,13 +145,17 @@ export async function rodarSolicitacoes() {
     await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'lendo', em: agora } });
     const { f } = criarFetcher();
     try { if (perfilDaSessao(await f(API + 'security/v1/session-and-bindings')) === 'cliente') { await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'cliente', em: Date.now() } }); return; } } catch (x) { /* só informativa */ }
-    const clientes = guardado.clientes;
-    const porCnpj = new Map(clientes.filter(c => c.cnpj && c.codigo).map(c => [c.cnpj, String(c.codigo)]));
-    const codCnpj = {}; for (const t of cfg.trained) { const cod = porCnpj.get(t.cnpj); if (cod) codCnpj[cod] = t.cnpj; }
-    const desde = new Date(agora - (cfg.diasSemEnvio || 30) * 864e5).toISOString().slice(0, 10);
-    const r = await lerEnviosPorSolicitacao(f, Object.keys(codCnpj), { desde, pausa });
-    const porCnpjDia = {}; for (const [cod, dia] of Object.entries(r.porCodigo)) porCnpjDia[codCnpj[cod]] = dia;
-    await st().set({ [CHAVE_SOLIC]: { em: Date.now(), assinatura: assinaturaTreinadas(cfg.trained), desde, porCnpj: porCnpjDia, lidas: r.lidas, tramites: r.tramites, limitada: r.limitada, semCodigo: cfg.trained.length - Object.keys(codCnpj).length } });
+    const ativos = guardado.clientes.filter(c => c.codigo && c.cnpj && !c.inativo);
+    const codCnpj = {}; for (const c of ativos) codCnpj[String(c.codigo)] = c.cnpj;
+    // treinadas: data exata (lê também as respostas do cliente); a empresa treinada vale pela raiz do CNPJ (todos os estabelecimentos do grupo)
+    const raizes = new Set(cfg.trained.map(t => String(t.cnpj).slice(0, 8)));
+    const precisos = ativos.filter(c => raizes.has(String(c.cnpj).slice(0, 8))).map(c => String(c.codigo));
+    const dia = n => new Date(agora - n * 864e5).toISOString().slice(0, 10);
+    const r = await lerEnviosPorSolicitacao(f, null, { desde: dia(730), recorte: dia(cfg.diasSemEnvio || 30), precisos, pausa });
+    const porCnpjDia = {};
+    for (const [cod, d] of Object.entries(r.porCodigo)) { const cnpj = codCnpj[cod]; if (cnpj && d > (porCnpjDia[cnpj] || '')) porCnpjDia[cnpj] = d; }
+    const semCodigo = cfg.trained.filter(t => !ativos.some(c => String(c.cnpj).slice(0, 8) === String(t.cnpj).slice(0, 8))).length;
+    await st().set({ [CHAVE_SOLIC]: { em: Date.now(), escopo: ESCOPO_SOLIC, assinatura: assinaturaTreinadas(cfg.trained), porCnpj: porCnpjDia, lidas: r.lidas, tramites: r.tramites, limitada: r.limitada, semAcesso: r.semAcesso, semCodigo } });
     await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'ok', em: Date.now() } });
   } catch (x) {
     try { await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: x instanceof AuthError ? 'sem_sessao' : 'erro', em: Date.now(), msg: String(x && x.message || x).slice(0, 200) } }); } catch (y) { /* nada */ }
