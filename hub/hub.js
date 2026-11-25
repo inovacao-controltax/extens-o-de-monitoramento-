@@ -60,7 +60,7 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
-let cfg = null, snap = null, gsnap = null, nsnap = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
@@ -142,7 +142,10 @@ function tableHtml(k) {
   const t = TABS[k], rows = data(k);
   if (lendoSemDados()) return '<div class="empty"><b>Lendo o Onvio…</b><p>Os resultados aparecem aqui assim que as primeiras empresas forem lidas.</p></div>';
   if (!rows.length && (real() || nsnap) && k === 'notificacoes') {
-    if (!nsnap) return '<div class="empty"><b>Notificações ainda não lidas.</b><p>A leitura é automática com o Onvio aberto (visão do escritório). Ou use "Testar leitura das notificações" em Coleta.</p></div>';
+    if (!nsnap) {
+      const motivo = nestado && nestado.estado === 'lendo' ? 'Lendo agora…' : nestado && nestado.msg ? `Última tentativa não deu certo: ${esc(nestado.msg)}` : 'A leitura é automática com o Onvio aberto (visão do escritório).';
+      return `<div class="empty"><b>Notificações ainda não lidas.</b><p>${motivo} Ou use "Testar leitura das notificações" em Coleta.</p></div>`;
+    }
     const padrao = nsnap.itens.filter(u => u.estado === 'padrao').length, conf = nsnap.itens.filter(u => u.estado === 'configurado').length;
     return `<div class="empty"><b>Ninguém está sem aviso de nova solicitação.</b><p>${conf} funcionário(s) têm configuração salva e todos recebem o aviso (e-mail ou sistema). Outros ${padrao} nunca tiveram a configuração alterada: valem os avisos padrão do Onvio, que são ligados, e por isso não entram aqui.</p></div>`;
   }
@@ -256,6 +259,7 @@ try {
   chrome.storage.onChanged.addListener(async (ch, area) => {
     if (area !== 'local') return;
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
+    if (ch['monitor-notificacoes-estado']) { nestado = ch['monitor-notificacoes-estado'].newValue || null; recompute(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
     if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
     if (ch['monitor-gestta-estado']) gestado = ch['monitor-gestta-estado'].newValue || null;
@@ -263,6 +267,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get('monitor-notificacoes').then(r => { nsnap = r['monitor-notificacoes'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado']).then(r => { nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
