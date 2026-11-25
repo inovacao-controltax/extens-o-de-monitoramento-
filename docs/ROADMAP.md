@@ -11,6 +11,7 @@
 | 4d | **Camada por cima do Onvio**: bolinha, atalho Alt+Shift+M, hub em tela cheia, coleta por trás, selo no ícone, coletar ao abrir (opcional) | feito (testado em Chromium real com Onvio simulado) |
 | 4e | **Leitura automática** sem clique, autoria por heurística, só os projetos relevantes, relatório com as chamadas e o motivo de cada falha, alarme falso das pastas padrão do Onvio corrigido | feito (relatório real recebido: 1.056 empresas lidas) |
 | 4f | **Leitura ao vivo**: dados parciais no painel desde a 1ª empresa, 4 em paralelo, treinadas primeiro, releitura rápida das treinadas a cada 10 min, sem dados de exemplo enquanto lê | feito (Chromium real: 1º dado em ~3 s, 150 empresas em ~20 s com 100 ms de latência) |
+| 4g | Painel sem piscar durante a leitura (sem animação nas atualizações, rolagem preservada, só redesenha o que mudou, tabelas de 200 em 200) e **anel de progresso** no bloco de status que enche conforme a leitura ("84 de 150 · 56%") | feito |
 | 5 | Coleta real do Gestta (usuários e notificações) | a fazer, depende da 4b |
 | 6 | Varredura de todas as empresas, histórico, badge e alertas | a fazer |
 | 7 | Ações (avisar cliente por e-mail/Zappy), exportação CSV | a fazer |

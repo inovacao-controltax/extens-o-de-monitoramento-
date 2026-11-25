@@ -37,7 +37,14 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:-.01em;line-height:var(-
 .pill-status b{display:block;font:600 var(--fs-control)/1.2 var(--font-body);}
 .pill-status small{display:block;font:var(--fs-meta)/1.2 var(--font-num);color:var(--ink-3);}
 .dot-ok{width:9px;height:9px;border-radius:50%;background:var(--status-ok);}
-.ring-mini{width:20px;height:20px;fill:none;stroke-width:3;}.ring-mini circle{stroke:var(--rule);}.ring-mini path{stroke:var(--status-ok);stroke-linecap:round;}
+.ring-mini{width:28px;height:28px;flex:none;fill:none;stroke-width:3;}
+.ring-mini .rm-bg{stroke:var(--rule);}
+.ring-mini .rm-fill{stroke:var(--status-ok);stroke-linecap:round;transition:stroke-dashoffset .7s var(--ease-smooth-out),stroke var(--duration-fast) var(--ease-out);}
+.pill-status.lendo .rm-fill{stroke:var(--status-warn);}
+.pill-status.lendo .dot-ok{background:var(--status-warn);}
+.pill-status.indet .ring-mini{animation:giro 1s var(--ease-linear) infinite;}
+@keyframes giro{to{transform:rotate(360deg);}}
+.pill-status small{min-width:11ch;}
 .icon-btn{all:unset;box-sizing:border-box;width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;color:var(--ink-2);}
 .icon-btn:hover{background:var(--surface-2);}.icon-btn:focus-visible{outline:2px solid var(--blue-deep);}
 .search{display:flex;align-items:center;gap:var(--sp-2);height:40px;padding:0 var(--sp-3);min-width:220px;max-width:300px;border:1px solid var(--rule-strong);border-radius:var(--r);color:var(--ink-3);background:var(--surface);
@@ -200,3 +207,11 @@ progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-de
 
 .chk{display:flex;align-items:flex-start;gap:var(--sp-2);margin:0 0 var(--sp-3);font-size:var(--fs-control);color:var(--ink-2);}
 .chk input{margin-top:2px;}
+
+/* Topo numa linha só em telas médias: a busca encolhe antes de os botões quebrarem de linha */
+@media (min-width:900px){
+  .bar{flex-wrap:nowrap;}
+  .search{flex:1 1 150px;min-width:120px;max-width:300px;}
+  .ttl{flex:1 1 90px;}
+  .bar .btn,.bar .icon-btn,.pill-status,.seg{flex:none;}
+}
