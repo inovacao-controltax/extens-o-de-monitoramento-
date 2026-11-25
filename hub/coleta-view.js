@@ -1,5 +1,5 @@
 import { criarFetcher, abaOnvio, pausa } from '../src/onvio-tab.js';
-import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, diagnosticarNotificacoes, textoRelatorioNotificacoes, AuthError } from '../src/onvio-reader.js';
+import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, diagnosticarNotificacoes, lerNotificacoesEscritorio, textoRelatorioNotificacoes, AuthError } from '../src/onvio-reader.js';
 import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS } from '../src/config.js';
 import { loadSnapshot, saveSnapshot, clearSnapshot } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
@@ -134,6 +134,8 @@ export async function renderColeta(root, { toast, onChanged }) {
       const log = [], f = await criarFetcher({ onChamada: c => log.push(c) });
       const rep = await diagnosticarNotificacoes(f, { pausa, chamadas: log, via: f.via });
       $('#rel').textContent = textoRelatorioNotificacoes(rep); $('#copiar').disabled = false;
+      const c1 = await loadConfig(), lido = await lerNotificacoesEscritorio(f, { pausa, campos: { email: c1.notifCampoEmail, sistema: c1.notifCampoSistema } });   // guarda para a aba Notificações (só nome, estado e sim/não)
+      await chrome.storage.local.set({ 'monitor-notificacoes': { fonte: 'onvio', em: Date.now(), total: lido.total, campos: lido.campos, itens: lido.itens } });
       toast(rep.passos.every(p => p.ok) ? 'Notificações: leitura funcionando' : 'Notificações: veja o relatório', rep.passos.every(p => p.ok) ? 'ok' : 'warn');
     } catch (e) { const m = e instanceof AuthError ? e.message : `Erro na leitura: ${e.message}`; $('#rel').textContent = m; toast(m, 'warn'); }
     finally { $('#testarN').disabled = false; aba(); }
