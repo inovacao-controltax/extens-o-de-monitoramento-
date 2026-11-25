@@ -2,13 +2,13 @@
 // Mesma regra do Hub (portal.js, statusClienteComputado): o treinamento é calculado por empresa e setor
 // a partir dos CONTATOS do cliente. Em cada setor: concluído = todos os contatos concluídos; em andamento =
 // algum concluído ou em andamento. Entram as empresas com pelo menos um setor concluído ou em andamento
-// (inclusive as "não 100% treinadas", marcadas como parcial).
+// (as "não 100% treinadas", marcadas como parcial, só vêm com { soCompletas: false }; de fábrica só as 100% treinadas, com contato).
 import { normalizeCnpj } from './config.js';
 
 const SETOR_HUB = { pessoal: 'Pessoal', contabil: 'Contábil', fiscal: 'Fiscal', financeiro: 'Financeiro' };
 
 /** empresas: [{ id, nome, cnpj }]; contatos: [{ empresaId, setores: ['pessoal',...], statusTreinamento, concluidoEm }] */
-export function trainedFromHub({ empresas = [], contatos = [] } = {}) {
+export function trainedFromHub({ empresas = [], contatos = [] } = {}, { soCompletas = true } = {}) {
   const porEmpresa = new Map();
   for (const c of contatos) {
     for (const sk of c.setores || []) {
@@ -31,6 +31,7 @@ export function trainedFromHub({ empresas = [], contatos = [] } = {}) {
       for (const c of feitos) { const d = String(c.concluidoEm || '').slice(0, 10); if (d > ultima) ultima = d; }
     }
     if (!treinados.length) continue;
+    if (soCompletas && parcial) continue;   // Josué, 25/11/2026: só entra empresa com contato e 100% treinada
     out.push({ empresa: emp.nome, cnpj, treinadoEm: ultima, demanda: treinados, parcial });
   }
   return out.sort((a, b) => a.empresa.localeCompare(b.empresa, 'pt-BR'));

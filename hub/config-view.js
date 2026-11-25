@@ -98,7 +98,7 @@ export async function renderConfig(root, { toast, onSaved }) {
     const txt = $('#paste').value;
     let rows, errors;
     if (/^\s*[\[{]/.test(txt)) {
-      try { rows = trainedFromHub(JSON.parse(txt)); errors = rows.length ? [] : [{ linha: 1, msg: 'Nenhum cliente com treinamento concluído ou em andamento no JSON do Hub.' }]; }
+      try { rows = trainedFromHub(JSON.parse(txt)); errors = rows.length ? [] : [{ linha: 1, msg: 'Nenhum cliente 100% treinado e com contato no JSON do Hub.' }]; }
       catch (e) { rows = []; errors = [{ linha: 1, msg: 'JSON inválido. Cole o conteúdo completo exportado do Hub.' }]; }
     } else ({ rows, errors } = parseTrained(txt));
     $('#errs').innerHTML = errors.map(e => `<li>Linha ${e.linha}: ${esc(e.msg)}</li>`).join('');

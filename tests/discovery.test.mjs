@@ -39,7 +39,8 @@ test('Hub: 100% treinado, parcial, não iniciado e sem contatos', () => {
     { empresaId: 'e2', setores: ['contabil'], statusTreinamento: 'pendente' },
     { empresaId: 'e3', setores: ['pessoal'], statusTreinamento: 'agendado' },
   ];
-  const r = trainedFromHub({ empresas: emp, contatos });
+  assert.deepEqual(trainedFromHub({ empresas: emp, contatos }).map(x => x.empresa), ['Alfa']);   // de fábrica: só 100% treinadas
+  const r = trainedFromHub({ empresas: emp, contatos }, { soCompletas: false });
   assert.deepEqual(r.map(x => x.empresa), ['Alfa', 'Beta']);
   assert.deepEqual(r[0], { empresa: 'Alfa', cnpj: '11222333000181', treinadoEm: '2026-10-02', demanda: ['Pessoal', 'Fiscal'], parcial: false });
   assert.equal(r[1].parcial, true);
@@ -49,7 +50,7 @@ test('Hub: contato em andamento já conta como treinado parcial; setor sem iníc
   const r = trainedFromHub({ empresas: emp, contatos: [
     { empresaId: 'e1', setores: ['pessoal'], statusTreinamento: 'andamento' },
     { empresaId: 'e1', setores: ['fiscal'], statusTreinamento: 'pendente' },
-  ] });
+  ] }, { soCompletas: false });
   assert.equal(r.length, 1);
   assert.deepEqual(r[0].demanda, ['Pessoal']);
   assert.equal(r[0].parcial, true);
