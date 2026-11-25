@@ -50,3 +50,12 @@ test('CNPJ alfanumérico (padrão novo) valida e formata', () => {
   assert.equal(isValidCnpj('12.ABC.345/01DE-36'), false);
   assert.equal(formatCnpj('12ABC34501DE35'), '12.ABC.345/01DE-35');
 });
+
+test('config antiga com a lista de pastas da 1ª versão é atualizada (evita alarme falso nas pastas padrão do Onvio)', async () => {
+  const antiga = ['Contábil', 'Fiscal', 'Pessoal', 'Financeiro', 'Comunicados'];
+  await saveConfig({ ...DEFAULT_CONFIG, allowedFolders: antiga });
+  const c = await loadConfig();
+  for (const n of ['Administrativo', 'Certidão Negativa de Débito', 'Contabilidade', 'Patrimônio', 'Registro de Empresas']) assert.ok(c.allowedFolders.includes(n), n);
+  await saveConfig({ ...DEFAULT_CONFIG, allowedFolders: ['Minha Pasta'] });                       // lista que a pessoa escolheu: respeitada
+  assert.deepEqual((await loadConfig()).allowedFolders, ['Minha Pasta']);
+});

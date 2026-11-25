@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Hub de Monitoramento do Portal",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Painel por cima do Onvio para acompanhar o uso do Portal do Cliente: nomenclatura, pastas, clientes sem envio e notificações.",
   "permissions": ["storage", "unlimitedStorage", "scripting", "tabs"],
   "host_permissions": ["https://onvio.com.br/*"],
-  "background": { "service_worker": "src/background.js" },
+  "background": { "service_worker": "src/background.js", "type": "module" },
   "action": { "default_title": "Hub de Monitoramento (abre por cima do Onvio)" },
   "commands": {
     "alternar-camada": { "suggested_key": { "default": "Alt+Shift+M" }, "description": "Abrir ou fechar o Hub de Monitoramento por cima do Onvio" }
