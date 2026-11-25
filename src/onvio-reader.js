@@ -433,7 +433,7 @@ const URL_NOTIF = id => `${API}service-requesting/v1/contact-notifications/${enc
  * Sonda a configuração de notificação de uma amostra de funcionários: códigos HTTP, nomes de campos e, por campo
  * verdadeiro/falso, QUANTOS têm sim e não (contagens; nunca valores por pessoa).
  */
-export async function diagnosticarNotificacoes(fetcher, { amostra = 25, pausa, chamadas = [], via = '' } = {}) {
+export async function diagnosticarNotificacoes(fetcher, { amostra = Infinity, pausa, chamadas = [], via = '' } = {}) {
   const rep = { passos: [], avisos: [], via };
   const passo = (nome, ok, detalhe = '') => rep.passos.push({ nome, ok, detalhe });
   let equipe;
@@ -461,12 +461,49 @@ export async function diagnosticarNotificacoes(fetcher, { amostra = 25, pausa, c
   }
   rep.amostra = { funcionarios: alvo.length, status, comConfiguracao: lidos };
   rep.campos = [...nomes].slice(0, 80);
+  rep.deteccao = detectarCamposNovaSolicitacao([...bool.keys()].map(c => [c]));
   rep.booleanos = Object.fromEntries([...bool.entries()].map(([c, g]) => [c, `sim ${g.sim} · não ${g.nao}`]));
   passo('Configuração de notificação (amostra)', lidos > 0 || Object.keys(status).length > 0, `status ${JSON.stringify(status)}`);
   if (!lidos && status[404]) rep.avisos.push('A rota respondeu 404 para todos da amostra: provavelmente 404 significa "ainda sem configuração salva" (valores padrão) ou o identificador usado não é o certo. Abra a configuração de um funcionário que JÁ foi alterada e use o modo aprender para ver a resposta 200.');
   else if (status[404]) rep.avisos.push(`${status[404]} de ${alvo.length} funcionários deram 404 (sem configuração salva?). O monitor precisa saber o que o Onvio considera "ligado" nesse caso (padrão).`);
   rep.chamadas = resumirChamadas(chamadas);
   return rep;
+}
+/** Acha, entre os campos verdadeiro/falso, os de "nova Solicitação de Serviço" por e-mail e por sistema (ou usa os caminhos informados). */
+export function detectarCamposNovaSolicitacao(caminhos, { email = '', sistema = '' } = {}) {
+  const nomes = caminhos.map(([c]) => c);
+  const nova = c => /(nova|new|novo).*(solicit|request|servi)|(solicit|request).*(nova|new)/i.test(c);
+  const ehMail = c => /e-?mail/i.test(c), ehSis = c => /(sistema|system|inapp|in_app|app|push|portal)/i.test(c);
+  const e = email && nomes.includes(email) ? email : nomes.find(c => nova(c) && ehMail(c)) || '';
+  const si = sistema && nomes.includes(sistema) ? sistema : nomes.find(c => nova(c) && ehSis(c) && !ehMail(c)) || '';
+  return { email: e, sistema: si };
+}
+/**
+ * Lê a configuração de notificação de TODA a equipe ativa. 200 = configurado (lê "nova Solicitação de Serviço" por e-mail e sistema);
+ * 404 = sem configuração salva (padrão do Onvio). Devolve só o necessário para o monitor (nome, estado, sim/não), nunca e-mails.
+ */
+export async function lerNotificacoesEscritorio(fetcher, { pausa, paralelo = 4, campos = {}, onProgresso } = {}) {
+  const equipe = await listarEquipe(fetcher), itens = new Array(equipe.length), cam = new Map();
+  let prox = 0, feito = 0;
+  const um = async () => {
+    for (;;) {
+      const i = prox++; if (i >= equipe.length) return;
+      const f = equipe[i], id = f.contactId || f.id, item = { nome: f.nome, estado: 'erro', email: null, sistema: null };
+      try {
+        const d = await fetcher(URL_NOTIF(id)); item.estado = 'configurado'; item._c = caminhosBooleanos(d);
+        for (const [c, v] of item._c) { const g = cam.get(c) || { sim: 0, nao: 0 }; v ? g.sim++ : g.nao++; cam.set(c, g); }
+      } catch (e) { if (e instanceof AuthError) throw e; if (codigoHttp(e) === 404) item.estado = 'padrao'; }
+      itens[i] = item; feito++; if (onProgresso) onProgresso({ feito, total: equipe.length });
+      if (pausa) await pausa(80);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, paralelo) }, um));
+  const sel = detectarCamposNovaSolicitacao([...cam.keys()].map(c => [c]), campos);
+  for (const it of itens) {
+    if (it._c) { const m = new Map(it._c); if (sel.email) it.email = m.has(sel.email) ? m.get(sel.email) : null; if (sel.sistema) it.sistema = m.has(sel.sistema) ? m.get(sel.sistema) : null; }
+    delete it._c;
+  }
+  return { itens, total: equipe.length, campos: sel, booleanos: Object.fromEntries([...cam.entries()].map(([c, g]) => [c, `sim ${g.sim} · não ${g.nao}`])) };
 }
 export function textoRelatorioNotificacoes(rep) {
   const L = ['RELATÓRIO DAS NOTIFICAÇÕES DO ESCRITÓRIO (Onvio; sem nomes, e-mails nem valores por pessoa)', ''];
@@ -476,6 +513,7 @@ export function textoRelatorioNotificacoes(rep) {
   if (rep.identificador) L.push(`Identificador que a rota aceita: ${rep.identificador}`);
   if (rep.amostra) L.push(`Amostra: ${JSON.stringify(rep.amostra)}`);
   if (rep.campos && rep.campos.length) L.push('', `Campos da resposta: ${rep.campos.join(', ')}`);
+  if (rep.deteccao) L.push(`Campos de nova solicitação detectados: ${JSON.stringify(rep.deteccao)}`);
   if (rep.booleanos && Object.keys(rep.booleanos).length) L.push('Campos verdadeiro/falso (contagem na amostra):', ...Object.entries(rep.booleanos).map(([c, v]) => `  ${c}: ${v}`));
   if (rep.avisos.length) L.push('', ...rep.avisos.map(a => `AVISO: ${a}`));
   if (rep.chamadas && rep.chamadas.length) L.push('', 'Chamadas ao Onvio (rota, quantas, falhas):', ...rep.chamadas.map(c => `  ${c.falhas ? '[FALHOU]' : '[ok]    '} ${c.rota}  x${c.n}${c.falhas ? `  falhas: ${c.falhas}  ${c.erro}` : ''}`));

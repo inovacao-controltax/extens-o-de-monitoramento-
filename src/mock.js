@@ -25,6 +25,12 @@ export const SAMPLE = {
     { empresa: 'Zeta Comércio', cnpj: '66666666000166', treinadoEm: ago(50), demanda: ['Financeiro'] },
     { empresa: 'Eta Serviços', cnpj: '77777777000177', treinadoEm: ago(10), demanda: ['Pessoal'] },
   ],
+  notif: { fonte: 'exemplo', total: 4, itens: [
+    { nome: 'Maria Souza', estado: 'configurado', email: false, sistema: false },
+    { nome: 'Carlos Lima', estado: 'configurado', email: false, sistema: false },
+    { nome: 'João Alves', estado: 'configurado', email: true, sistema: true },
+    { nome: 'Ana Reis', estado: 'padrao', email: null, sistema: null },
+  ] },
   users: [
     { nome: 'Maria Souza', setor: 'Pessoal', email: 'maria@exemplo.com', notificaTarefa: false, tarefasAtivas: 12 },
     { nome: 'Carlos Lima', setor: 'Fiscal', email: 'carlos@exemplo.com', notificaTarefa: false, tarefasAtivas: 7 },

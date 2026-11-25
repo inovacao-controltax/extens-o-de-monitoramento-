@@ -69,6 +69,19 @@ export function checkNotificacoes(users) {
     .sort((a, b) => (b.tarefasAtivas ?? 0) - (a.tarefasAtivas ?? 0));
 }
 
+/**
+ * Funcionários do escritório sem aviso de "nova Solicitação de Serviço" (e-mail e sistema desligados), lidos do Onvio.
+ * Sem configuração salva (404) só entra se cfg.notifPadraoDesligado. Configuração lida sem os campos reconhecidos não entra.
+ */
+export function checkNotificacoesOnvio(notif, cfg = {}) {
+  const out = [];
+  for (const u of (notif && notif.itens) || []) {
+    if (u.estado === 'configurado' && u.email === false && u.sistema === false) out.push({ nome: u.nome, motivo: 'E-mail e sistema desligados', situacao: 'desligado' });
+    else if (u.estado === 'padrao' && cfg.notifPadraoDesligado) out.push({ nome: u.nome, motivo: 'Sem configuração salva (padrão do Onvio)', situacao: 'padrao' });
+  }
+  return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
 /** Se a configuração não tem clientes treinados, usa os do snapshot (dados de exemplo). */
 export function analyze(snapshot, cfg, now = new Date()) {
   const docs = snapshot.docs || [];
@@ -77,6 +90,6 @@ export function analyze(snapshot, cfg, now = new Date()) {
     nomenclatura: checkNomenclatura(docs, cfg),
     pastas: checkPastas(docs, cfg),
     semEnvio: checkSemEnvio(docs, trained, cfg, now),
-    notificacoes: checkNotificacoes(snapshot.users || []),
+    notificacoes: snapshot.notif ? checkNotificacoesOnvio(snapshot.notif, cfg) : checkNotificacoes(snapshot.users || []),
   };
 }
