@@ -65,3 +65,8 @@ test('analyze: usa treinados da configuração; se vazio, os do snapshot', () =>
   const c2 = { ...cfg, trained: [{ empresa: 'C', cnpj: '8', treinadoEm: '2026-01-01', demanda: [] }] };
   assert.equal(analyze(snap, c2, NOW).semEnvio[0].empresa, 'C');
 });
+
+test('pastas: projeto que só entrou pelo nome (sem arquivo lido) conta 0 arquivos', () => {
+  const r = checkPastas([doc({ pasta: 'Docs Diversos', arquivo: '', origem: 'sistema' })], cfg);
+  assert.deepEqual(r, [{ empresa: 'A', cnpj: '1', pasta: 'Docs Diversos', arquivos: 0 }]);
+});

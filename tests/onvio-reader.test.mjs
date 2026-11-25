@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { API, leituraPermitida, guardar, perfilDaSessao, listarClientes, filhosDe, origemDoDocumento, lerEmpresa, coletar, diagnosticar, textoDoRelatorio, camposDe, AuthError } from '../src/onvio-reader.js';
+import { classificarAutores, fetcherComFallback, precisaColetar, resumirChamadas, rotulo, lerResposta, API, leituraPermitida, guardar, perfilDaSessao, listarClientes, filhosDe, origemDoDocumento, lerEmpresa, coletar, diagnosticar, textoDoRelatorio, camposDe, AuthError } from '../src/onvio-reader.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import { analyze } from '../src/rules.js';
 
@@ -72,7 +72,7 @@ test('clientes: junta folha e CND pelo código, com paginação e dois ids', asy
   const f = fakeApi(c);
   const { clientes } = await listarClientes(f);
   assert.equal(clientes.length, 130);
-  assert.deepEqual(clientes[0], { ids: ['f1', 'c1'], codigo: '1', nome: 'E1', cnpj: '11222333000181', inativo: false });
+  assert.deepEqual(clientes[0], { ids: ['f1', 'c1'], codigo: '1', nome: 'E1', cnpj: '11222333000181', inativo: false, situacao: 'Ativo' });
   assert.equal(clientes[8].inativo, true);
   assert.equal(clientes[8].cnpj, '12ABC34501DE35');
   assert.equal(f.pedidos.filter(u => u.includes('br-payroll-sr')).length, 2);
@@ -161,4 +161,111 @@ test('diagnóstico avisa quando nenhum campo de autoria é reconhecido', async (
 });
 test('camposDe lista só nomes e tipos', () => {
   assert.deepEqual(camposDe({ a: 'segredo', b: { c: 1 }, d: [1] }), ['a:string', 'b:object', 'b.c:number', 'd:lista']);
+});
+
+// ---------- Fase 4e: o que o relatório do Onvio real mostrou ----------
+const dd = (autor, cnpj, extra = {}) => ({ cnpj, empresa: cnpj, pasta: 'Fiscal', arquivo: 'a.pdf', origem: 'indefinida', autor, eu: false, ...extra });
+test('autoria: quem envia para muitas empresas é do escritório; poucas, cliente; o id não fica guardado', () => {
+  const docs = [...['1', '2', '3', '4'].map(c => dd('staff-A', c)), dd('cli-1', '1'), dd('cli-1', '1'), dd('cli-2', '2'), dd('', '3'), dd('x', '4', { arquivo: '' })];
+  const r = classificarAutores(docs);
+  assert.deepEqual(docs.map(d => d.origem), ['escritorio', 'escritorio', 'escritorio', 'escritorio', 'cliente', 'cliente', 'cliente', 'indefinida', 'indefinida']);
+  assert.deepEqual(r, { distintos: 4, escritorio: 1, clientes: 3, minEmpresas: 3 });
+  assert.ok(docs.every(d => !('autor' in d) && !('eu' in d)));
+});
+test('autoria: o usuário logado é sempre do escritório, mesmo em uma empresa só', () => {
+  const docs = [dd('eu', '1', { eu: true }), dd('cli', '1')];
+  classificarAutores(docs);
+  assert.deepEqual(docs.map(d => d.origem), ['escritorio', 'cliente']);
+});
+test('autoria: com muitas empresas o limite sobe (um cliente de grupo com 4 empresas não vira escritório)', () => {
+  const docs = [];
+  for (let i = 0; i < 40; i++) docs.push(dd('staff', 'e' + i));
+  for (let i = 0; i < 4; i++) docs.push(dd('grupo', 'e' + i));
+  const r = classificarAutores(docs);
+  assert.equal(r.minEmpresas, 6);
+  assert.equal(docs.filter(d => d.origem === 'cliente').length, 4);
+});
+test('leitura de empresa: autor sai do createdBy.userGuid e projeto desconhecido só entra pelo nome', async () => {
+  const c = cenario();
+  c.projetos.f1 = [{ id: 'pP', name: 'Pessoal' }, { id: 'pX', name: 'Registro de Empresas' }];
+  c.filhos.pP = [arq('a1', 'folha.pdf', { createdBy: { userGuid: 'g-1', isCurrentUser: true } })];
+  c.filhos.pX = [arq('x1', 'contrato.pdf')];
+  const f = fakeApi(c);
+  const r = await lerEmpresa(f, { nome: 'Alfa', cnpj: '1', ids: ['f1'] }, { conhecidas: ['Pessoal', 'Fiscal'], soConhecidas: true });
+  assert.deepEqual(r.docs.map(d => [d.pasta, d.arquivo, d.autor, d.eu]), [['Registro de Empresas', '', undefined, undefined], ['Pessoal', 'folha.pdf', 'g-1', true]]);
+  assert.equal(f.pedidos.some(u => u.includes('/Projects/pX/')), false, 'não desce no projeto desconhecido');
+  assert.equal(r._amostra.doc.name, 'folha.pdf');
+});
+test('empresas: a folha dá 403 (usuário fora do Pessoal) e a leitura segue pela CND', async () => {
+  const c = cenario(); const base = fakeApi(c);
+  const f = async u => { if (u.includes('br-payroll-sr')) throw new AuthError('HTTP 403'); return base(u); };
+  const r = await listarClientes(f);
+  assert.equal(r.clientes.length, 3);
+  assert.equal(r.fontes.folha.ok, false); assert.equal(r.fontes.cnd.ok, true);
+  assert.deepEqual(r.clientes[0].ids, ['c1']);
+});
+test('empresas: nenhuma lista responde = erro que diz o motivo de cada uma', async () => {
+  const f = async () => { throw new Error('HTTP 500'); };
+  await assert.rejects(() => listarClientes(f), /folha: HTTP 500 · cnd: HTTP 500 · nfe: HTTP 500/);
+  await assert.rejects(() => listarClientes(async () => { throw new AuthError('HTTP 401'); }), AuthError);
+});
+test('empresas: sem folha nem CND, usa a lista de NF-e', async () => {
+  const f = async u => { if (u.includes('manifesto')) return { items: [{ id: 'n1', code: 7, name: 'Zeta', nationalIdentity: '11.222.333/0001-81', active: false }], totalItems: 1 }; throw new Error('HTTP 404'); };
+  const r = await listarClientes(f);
+  assert.deepEqual(r.clientes, [{ ids: ['n1'], codigo: '7', nome: 'Zeta', cnpj: '11222333000181', inativo: true, situacao: '' }]);
+});
+test('jeito de ler: tenta o seguinte quando o primeiro falha, lembra o que funcionou e não insiste em 404', async () => {
+  const ok = { status: 200, ct: 'application/json', body: '{"a":1}' };
+  const chamadas = [];
+  const f = fetcherComFallback([{ via: 'A', f: async u => (chamadas.push('A'), { status: 0, ct: '', body: 'x' }) }, { via: 'B', f: async u => (chamadas.push('B'), ok) }], { espera: async () => {} });
+  assert.deepEqual(await f('u1'), { a: 1 }); assert.equal(f.via, 'B');
+  await f('u2'); assert.deepEqual(chamadas, ['A', 'B', 'B']);
+  const g = fetcherComFallback([{ via: 'A', f: async () => ({ status: 404, ct: 'text/plain', body: '' }) }, { via: 'B', f: async () => { throw new Error('não devia chamar'); } }]);
+  await assert.rejects(() => g('u'), /HTTP 404/);
+  const h = fetcherComFallback([{ via: 'A', f: async () => ({ status: 302, ct: '', body: '' }) }, { via: 'B', f: async () => ({ status: 401, ct: '', body: '' }) }]);
+  await assert.rejects(() => h('u'), /Tentativas: A: redirecionou \(HTTP 302\) · B: HTTP 401/);
+});
+test('jeito de ler: 503 e 429 esperam e tentam de novo uma vez', async () => {
+  let n = 0; const esperas = [];
+  const f = fetcherComFallback([{ via: 'A', f: async () => (++n === 1 ? { status: 429, ct: '', body: '' } : { status: 200, ct: 'application/json', body: '[]' }) }], { espera: async ms => esperas.push(ms) });
+  assert.deepEqual(await f('u'), []); assert.deepEqual(esperas, [3000]);
+});
+test('registro das chamadas: rota sem ids e resumo por rota', async () => {
+  const log = [];
+  const g = guardar(async u => { if (u.includes('Folders')) throw new Error('HTTP 500'); return {}; }, c => log.push(c));
+  await g(API + 'storage/v2/Projects/segredo123/children?from=1');
+  await g(API + 'storage/v2/Folders/outro456/children?from=1').catch(() => {});
+  await g(API + 'storage/v1/projects?primaryAssociationId=emp-9');
+  assert.deepEqual(log.map(c => c.rota), ['storage/v2/Projects/{id}/children', 'storage/v2/Folders/{id}/children', 'storage/v1/projects?primaryAssociationId={id}']);
+  assert.ok(!JSON.stringify(log).includes('segredo123') && !JSON.stringify(log).includes('emp-9'));
+  assert.deepEqual(resumirChamadas(log).find(c => c.falhas), { rota: 'storage/v2/Folders/{id}/children', n: 1, falhas: 1, erro: 'HTTP 500' });
+  assert.equal(rotulo(API + 'cnd/v1/clients?itemsPerPage=1'), 'cnd/v1/clients');
+});
+test('diagnóstico segue mesmo se a rota de sessão falhar, e mostra situações das empresas e as chamadas', async () => {
+  const f = fakeApi(cenario()); const log = [];
+  const g = guardar(async u => { if (u.includes('session-and-bindings')) throw new Error('HTTP 404'); return f(u); }, c => log.push(c));
+  const rep = await diagnosticar(g, { conhecidas: ['Pessoal', 'Fiscal'], chamadas: log, via: 'teste' });
+  assert.equal(rep.passos[0].ok, false); assert.match(rep.passos[0].detalhe, /seguindo mesmo assim/);
+  assert.equal(rep.empresas.total, 3);
+  assert.deepEqual(rep.situacoes, { Ativo: 2, Inativo: 1 });
+  const t = textoDoRelatorio(rep);
+  assert.match(t, /Jeito de ler: teste/); assert.match(t, /Chamadas ao Onvio/); assert.match(t, /\[FALHOU\] security\/v1\/session-and-bindings/);
+});
+test('diagnóstico vê os campos de pasta e documento mesmo quando o 1º projeto está vazio', async () => {
+  const c = cenario(); c.projetos.f1 = [{ id: 'vazio', name: 'Administrativo' }, { id: 'pP', name: 'Pessoal' }];
+  c.filhos.vazio = []; c.filhos.pP = [pasta('d1', '2026'), arq('a1', 'x.pdf', { createdBy: { userGuid: 'g', isCurrentUser: false } })]; c.filhos.d1 = [];
+  const rep = await diagnosticar(fakeApi(c), { conhecidas: ['Pessoal'] });
+  assert.ok(rep.amostra.camposPasta.includes('itemType:string'));
+  assert.ok(rep.amostra.camposDocumento.includes('createdBy.userGuid:string'));
+  assert.deepEqual(rep.amostra.autores, { distintos: 1, doUsuarioLogado: 0, comAutor: 1 });
+});
+test('leitura automática: só quando os dados faltam ou estão velhos, e não insiste logo depois de falhar', () => {
+  const agora = Date.UTC(2026, 10, 25, 12), h = n => agora - n * 36e5, cfg = { autoLer: true, horasAuto: 6 };
+  assert.equal(precisaColetar({ snapshot: null, cfg, agora }), true);
+  assert.equal(precisaColetar({ snapshot: { fonte: 'onvio', coletadoEm: h(1) }, cfg, agora }), false);
+  assert.equal(precisaColetar({ snapshot: { fonte: 'onvio', coletadoEm: h(7) }, cfg, agora }), true);
+  assert.equal(precisaColetar({ snapshot: { fonte: 'onvio', coletadoEm: h(7) }, cfg: { ...cfg, autoLer: false }, agora }), false);
+  assert.equal(precisaColetar({ snapshot: null, cfg, agora, estado: { estado: 'sem_sessao', fimEm: agora - 10 * 60 * 1000 } }), false);
+  assert.equal(precisaColetar({ snapshot: null, cfg, agora, estado: { estado: 'erro', fimEm: agora - 40 * 60 * 1000 } }), true);
+  assert.equal(lerResposta({ status: 200, ct: 'application/json', body: '{}' }) !== null, true);
 });

@@ -8,6 +8,7 @@ const PERMITIDAS = [
   /^security\/v1\/session-and-bindings$/i,
   /^br-payroll-sr\/v1\/clients$/i,
   /^cnd\/v1\/clients$/i,
+  /^manifesto\/v1\/clients$/i,
   /^storage\/v1\/projects$/i,
   /^storage\/v2\/(Projects|Folders)\/[^/]+\/children$/i,
 ];
@@ -20,10 +21,20 @@ export function leituraPermitida(url) {
   const caminho = u.pathname.slice(5);
   return PERMITIDAS.some(r => r.test(caminho));
 }
-export const guardar = fetcher => async url => {
+/** Nome da rota sem ids e sem valores (para o relatório): storage/v2/Folders/{id}/children. */
+export const rotulo = url => { try { return new URL(url).pathname.slice(5).replace(/\/[^/]+(?=\/children$)/, '/{id}') + (new URL(url).searchParams.has('primaryAssociationId') ? '?primaryAssociationId={id}' : ''); } catch (e) { return String(url).slice(0, 60); } };
+export const guardar = (fetcher, onChamada) => async url => {
   if (!leituraPermitida(url)) throw new Error('leitura não permitida: ' + String(url).slice(0, 80));
-  return fetcher(url);
+  const t0 = Date.now();
+  try { const r = await fetcher(url); if (onChamada) onChamada({ rota: rotulo(url), ok: true, ms: Date.now() - t0 }); return r; }
+  catch (e) { if (onChamada) onChamada({ rota: rotulo(url), ok: false, erro: String(e && e.message || e).slice(0, 90), ms: Date.now() - t0 }); throw e; }
 };
+/** Junta as chamadas por rota: quantas, quantas falharam e o último erro. */
+export function resumirChamadas(log) {
+  const por = new Map();
+  for (const c of log) { const g = por.get(c.rota) || { rota: c.rota, n: 0, falhas: 0, erro: '' }; g.n++; if (!c.ok) { g.falhas++; g.erro = c.erro; } por.set(c.rota, g); }
+  return [...por.values()];
+}
 
 const semAcento = t => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 export const listaDe = d => Array.isArray(d) ? d : (d && (d.items || d.content || (d.data && (d.data.items || d.data)))) || [];
@@ -72,28 +83,38 @@ async function paginar(fetcher, caminho, pausa) {
   return itens;
 }
 /**
- * Empresas: lista da folha (id, código, nome) + lista de CND (CNPJ, situação), juntadas pelo código.
- * O id usado nos documentos pode ser o da folha ou o da CND (o Control Onvio tenta os dois): guardamos os dois.
+ * Empresas, juntando pelo código as listas que o usuário conseguir ler: folha (id, código, nome), CND (CNPJ, situação) e,
+ * se as duas não derem nada, a de NF-e. Cada fonte é independente: quem não é do Pessoal leva 403 na folha e a leitura segue pela CND.
+ * O id usado nos documentos pode ser o da folha ou o da CND (o Control Onvio tenta os dois): guardamos todos.
+ * Só falha de vez se NENHUMA fonte responder; aí devolve o motivo de cada uma.
  */
 export async function listarClientes(fetcher, { pausa } = {}) {
-  const por = new Map(); let falhaCnd = '';
-  for (const c of await paginar(fetcher, 'br-payroll-sr/v1/clients', pausa)) {
-    if (c == null || c.id == null) continue;
+  const por = new Map(), fontes = {};
+  const nova = (codigo, id, nome) => ({ ids: id == null ? [] : [String(id)], codigo, nome: nome || '', cnpj: '', inativo: false, situacao: '' });
+  const juntar = (c, nome, cnpj, inativo) => {
+    if (!c) return;
     const codigo = c.code == null ? '' : String(c.code);
-    por.set(codigo || `id:${c.id}`, { ids: [String(c.id)], codigo, nome: c.name || c.clientName || '', cnpj: '', inativo: false });
+    const chave = codigo || `id:${c.id}`;
+    const e = por.get(chave) || por.set(chave, nova(codigo, null, nome(c))).get(chave);
+    if (c.id != null && !e.ids.includes(String(c.id))) e.ids.push(String(c.id));
+    if (!e.nome) e.nome = nome(c);
+    const doc = cnpj(c); if (doc) e.cnpj = doc;
+    if (inativo(c)) e.inativo = true;
+    if (c.clientStatus != null) e.situacao = String(c.clientStatus).slice(0, 30);
+  };
+  const doc = v => String(v || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  const rodar = async (nome, caminho, tratar) => {
+    try { const itens = await paginar(fetcher, caminho, pausa); itens.forEach(tratar); fontes[nome] = { ok: true, n: itens.length }; }
+    catch (e) { fontes[nome] = { ok: false, erro: String(e && e.message || e), auth: e instanceof AuthError }; }
+  };
+  await rodar('folha', 'br-payroll-sr/v1/clients', c => c && c.id != null && juntar(c, x => x.name || x.clientName, () => '', () => false));
+  await rodar('cnd', 'cnd/v1/clients', c => c && juntar(c, x => x.clientName || x.name, x => doc(x.nationalIdentity), x => /inativ|inactive|desativ|baixad/i.test(String(x.clientStatus || ''))));
+  if (!por.size) await rodar('nfe', 'manifesto/v1/clients', c => c && juntar(c, x => x.name || x.clientName, x => doc(x.nationalIdentity), x => x.active === false || /inativ|inactive|desativ|baixad/i.test(String(x.clientStatus || ''))));
+  if (!por.size) {
+    const motivo = Object.entries(fontes).map(([k, v]) => `${k}: ${v.ok ? 'vazia' : v.erro}`).join(' · ');
+    throw (Object.values(fontes).some(v => v.auth) ? new AuthError(motivo) : new Error(motivo));
   }
-  try {
-    for (const c of await paginar(fetcher, 'cnd/v1/clients', pausa)) {
-      if (!c) continue;
-      const codigo = c.code == null ? '' : String(c.code);
-      const e = por.get(codigo) || (codigo && por.set(codigo, { ids: [], codigo, nome: c.clientName || c.name || '', cnpj: '', inativo: false }).get(codigo));
-      if (!e) continue;
-      if (c.id != null && !e.ids.includes(String(c.id))) e.ids.push(String(c.id));
-      e.cnpj = String(c.nationalIdentity || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
-      e.inativo = /inativ|inactive|desativ|baixad/i.test(String(c.clientStatus || ''));
-    }
-  } catch (e) { falhaCnd = e.message; }
-  return { clientes: [...por.values()], falhaCnd };
+  return { clientes: [...por.values()], falhaCnd: fontes.cnd && !fontes.cnd.ok ? fontes.cnd.erro : '', fontes };
 }
 
 // ---------- Documentos ----------
@@ -132,13 +153,39 @@ export function origemDoDocumento(d) {
   ver(d, 0, false);
   return cli && !esc ? 'cliente' : esc && !cli ? 'escritorio' : 'indefinida';
 }
+/** Identificador de quem criou o item (o Onvio só informa `createdBy.userGuid`, sem dizer se é cliente ou escritório). */
+const autorDe = x => { const c = x && (x.createdBy || x.uploadedBy || x.addedBy); return c && typeof c === 'object' && c.userGuid ? String(c.userGuid) : ''; };
+/**
+ * Define a origem de cada arquivo pelo autor: quem envia para MUITAS empresas (ou é o usuário logado) é do escritório; quem aparece em
+ * poucas é cliente. Heurística, até o vínculo com a lista de funcionários ser mapeado. Sem autor, mantém o que já tinha ('indefinida').
+ * minEmpresas: em quantas empresas diferentes o autor tem de aparecer para ser do escritório (3 se a leitura for pequena).
+ */
+export function classificarAutores(docs, { minEmpresas } = {}) {
+  const empresasDe = new Map(), eu = new Set();
+  const nEmp = new Set(docs.map(d => d.cnpj || d.empresa)).size;
+  const min = minEmpresas || (nEmp >= 30 ? 6 : 3);
+  for (const d of docs) {
+    if (!d.autor) continue;
+    if (d.eu) eu.add(d.autor);
+    (empresasDe.get(d.autor) || empresasDe.set(d.autor, new Set()).get(d.autor)).add(d.cnpj || d.empresa);
+  }
+  const esc = new Set([...empresasDe].filter(([g, e]) => e.size >= min).map(([g]) => g));
+  eu.forEach(g => esc.add(g));
+  let cliente = 0;
+  for (const d of docs) {
+    if (!d.arquivo) { delete d.autor; delete d.eu; continue; }
+    if (d.autor) { d.origem = esc.has(d.autor) ? 'escritorio' : 'cliente'; if (d.origem === 'cliente') cliente++; }
+    delete d.autor; delete d.eu;                                       // o identificador não fica guardado
+  }
+  return { distintos: empresasDe.size, escritorio: esc.size, clientes: empresasDe.size - esc.size, minEmpresas: min };
+}
 const dia = v => { const s = String(v || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : ''; };
 
 /**
  * Lê as pastas e arquivos de UMA empresa. Os "projetos" do cliente são os departamentos (Pessoal, Fiscal...) e viram a pasta de
  * primeiro nível. Se houver um projeto só e o nome dele não for um departamento conhecido, a raiz é esse projeto (desenho antigo).
  */
-export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMax = 3000, conhecidas = [] } = {}) {
+export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMax = 3000, conhecidas = [], soConhecidas = false, descer } = {}) {
   let projetos = [];
   for (const id of cliente.ids) {
     projetos = listaDe(await fetcher(URL_PROJETOS(id))).filter(p => p && p.id != null);
@@ -147,38 +194,44 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   }
   const ok = new Set(conhecidas.map(semAcento));
   const raizUnica = projetos.length === 1 && !ok.has(semAcento(nomeDe(projetos[0])));
-  const fila = projetos.map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
-  const docs = []; let truncado = false, itens = 0;
+  // Para ler mais rápido, só desce nos projetos conhecidos (departamentos que importam); os outros entram só pelo nome.
+  const lerSo = new Set((descer || conhecidas).map(semAcento));
+  const desce = p => !soConhecidas || raizUnica || lerSo.has(semAcento(nomeDe(p)));
+  const fila = projetos.filter(desce).map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
+  const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema' }));
+  const _amostra = { pasta: null, doc: null }; let truncado = false, itens = 0;
   while (fila.length) {
     const no = fila.shift();
-    if (pausa) await pausa(200);
+    if (pausa) await pausa(120);
     for (const x of await filhosDe(fetcher, no.tipo, no.id, pausa)) {
       if (++itens > itensMax) { truncado = true; break; }
-      if (ehPasta(x)) { if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
-      else docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x) });
+      if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
+      else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
     }
     if (itens > itensMax) break;
   }
-  return { docs, projetos: projetos.length, raizUnica, truncado };
+  return { docs, projetos: projetos.length, raizUnica, truncado, _amostra };
 }
 
 /** Coleta várias empresas, uma de cada vez. onProgresso({feito,total}); parar() => true interrompe. */
-export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas } = {}) {
+export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer } = {}) {
   const alvo = clientes.filter(c => !c.inativo && c.ids.length).slice(0, limite > 0 ? limite : undefined);
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
   for (const c of alvo) {
     if (parar && parar()) { q.interrompida = true; break; }
     try {
-      const r = await lerEmpresa(fetcher, c, { pausa, conhecidas });
+      const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer });
       docs.push(...r.docs); q.lidas++;
       if (!r.projetos) q.semProjeto++;
       if (r.truncado) q.truncadas++;
     } catch (e) { if (e instanceof AuthError) throw e; q.falhas++; }
     if (!c.cnpj) q.semCnpj++;
     if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
-    if (pausa) await pausa(300);
+    if (pausa) await pausa(150);
   }
-  q.docs = docs.length; q.origemIndefinida = docs.filter(d => d.origem === 'indefinida').length;
+  const aut = classificarAutores(docs);
+  q.docs = docs.filter(d => d.arquivo).length; q.origemIndefinida = docs.filter(d => d.arquivo && d.origem === 'indefinida').length;
+  q.autores = aut;
   return { docs, qualidade: q };
 }
 
@@ -198,45 +251,107 @@ export function camposDe(o, max = 40) {
 }
 const contar = arr => arr.reduce((m, x) => (m[x] = (m[x] || 0) + 1, m), {});
 
-export async function diagnosticar(fetcher, { pausa, conhecidas = [] } = {}) {
-  const rep = { passos: [], avisos: [] };
+export async function diagnosticar(fetcher, { pausa, conhecidas = [], chamadas = [], via = '' } = {}) {
+  const rep = { passos: [], avisos: [], via };
   const passo = (nome, ok, detalhe = '') => rep.passos.push({ nome, ok, detalhe });
-  let sessao = null;
-  try { sessao = await fetcher(API + 'security/v1/session-and-bindings'); } catch (e) { passo('Sessão do Onvio', false, e.message); return rep; }
-  rep.perfil = perfilDaSessao(sessao);
-  passo('Sessão do Onvio', true, `perfil: ${rep.perfil || 'não confirmado'}`);
-  if (rep.perfil === 'cliente') { passo('Visão do escritório', false, 'o Onvio está com acesso de cliente: nada foi lido'); return rep; }
+  // 1) Sessão: informativa. Se esta rota falhar, o resto ainda é tentado (só para se for claramente acesso de cliente).
+  try {
+    const sessao = await fetcher(API + 'security/v1/session-and-bindings');
+    rep.perfil = perfilDaSessao(sessao);
+    passo('Sessão do Onvio', true, `perfil: ${rep.perfil || 'não confirmado'}`);
+    if (rep.perfil === 'cliente') { passo('Visão do escritório', false, 'o Onvio está com acesso de cliente: nada foi lido'); return finalizar(rep, chamadas); }
+  } catch (e) { passo('Sessão do Onvio', false, `${e.message} (seguindo mesmo assim)`); }
+  // 2) Empresas
   let lista;
-  try { lista = await listarClientes(fetcher, { pausa }); } catch (e) { passo('Lista de empresas', false, e.message); return rep; }
+  try { lista = await listarClientes(fetcher, { pausa }); } catch (e) { passo('Lista de empresas', false, e.message); return finalizar(rep, chamadas); }
   const cl = lista.clientes;
+  rep.fontes = Object.fromEntries(Object.entries(lista.fontes).map(([k, v]) => [k, v.ok ? `ok (${v.n})` : `falhou: ${v.erro}`]));
+  rep.situacoes = contar(cl.map(c => c.situacao || '(vazio)'));
   rep.empresas = { total: cl.length, comCnpj: cl.filter(c => c.cnpj).length, inativas: cl.filter(c => c.inativo).length, comDoisIds: cl.filter(c => c.ids.length > 1).length };
-  passo('Lista de empresas', cl.length > 0, `${cl.length} empresas, ${rep.empresas.comCnpj} com CNPJ${lista.falhaCnd ? ` (CND falhou: ${lista.falhaCnd})` : ''}`);
+  passo('Lista de empresas', cl.length > 0, `${cl.length} empresas, ${rep.empresas.comCnpj} com CNPJ`);
   if (rep.empresas.comCnpj < cl.length) rep.avisos.push('Há empresas sem CNPJ: elas não casam com a lista de treinados do Hub.');
+  if (Object.values(lista.fontes).some(v => !v.ok)) rep.avisos.push('Alguma lista de empresas não respondeu (veja "Fontes"). A leitura segue com as que responderam.');
+  // 3) Pastas e arquivos de uma empresa de teste
   const amostra = cl.find(c => !c.inativo && c.ids.length);
-  if (!amostra) { passo('Pastas e arquivos', false, 'nenhuma empresa ativa para testar'); return rep; }
+  if (!amostra) { passo('Pastas e arquivos', false, 'nenhuma empresa ativa para testar'); return finalizar(rep, chamadas); }
   try {
     const r = await lerEmpresa(fetcher, amostra, { pausa, profMax: 2, itensMax: 300, conhecidas });
     const projetos = [];
     for (const id of amostra.ids) { const p = listaDe(await fetcher(URL_PROJETOS(id))); if (p.length) { projetos.push(...p); rep.idQueFunciona = id === amostra.ids[0] ? 'primeiro (folha)' : 'segundo (CND)'; break; } }
     rep.amostra = { projetos: r.projetos, nomesDeNivel1: [...new Set(r.docs.map(d => d.pasta.split('/')[0]).filter(Boolean))], raizUnica: r.raizUnica, docsLidos: r.docs.length, truncado: r.truncado,
       origens: contar(r.docs.map(d => d.origem)), camposProjeto: camposDe(projetos[0]) };
-    const raiz = projetos[0] && (await filhosDe(fetcher, 'Projects', projetos[0].id, pausa));
-    if (raiz) { rep.amostra.camposPasta = camposDe(raiz.find(ehPasta)); rep.amostra.camposDocumento = camposDe(raiz.find(x => !ehPasta(x))); }
+    rep.amostra.camposPasta = camposDe(r._amostra.pasta); rep.amostra.camposDocumento = camposDe(r._amostra.doc);
+    const autores = new Set(r.docs.map(d => d.autor).filter(Boolean));
+    rep.amostra.autores = { distintos: autores.size, doUsuarioLogado: r.docs.filter(d => d.eu).length, comAutor: r.docs.filter(d => d.autor).length };
     passo('Pastas e arquivos', r.projetos > 0, `${r.projetos} projeto(s), ${r.docs.length} arquivo(s) até 2 níveis`);
+    if (!rep.amostra.camposDocumento.length) rep.avisos.push('A empresa de teste não tem nenhum arquivo nos 2 primeiros níveis: os campos do documento não puderam ser vistos.');
+    if (!r.projetos) rep.avisos.push('A empresa de teste não tem projeto no portal de documentos pelos ids tentados. Pode ser outro id (veja "Campos da empresa").');
     if (rep.amostra.origens.indefinida === r.docs.length && r.docs.length) rep.avisos.push('Não foi possível saber quem enviou cada arquivo (nenhum campo de autoria reconhecido). Veja "camposDocumento" e mande o relatório para ajustar a regra.');
   } catch (e) { passo('Pastas e arquivos', false, e.message); }
-  return rep;
+  return finalizar(rep, chamadas);
 }
+function finalizar(rep, chamadas) { rep.chamadas = resumirChamadas(chamadas); return rep; }
 export function textoDoRelatorio(rep) {
   const L = ['RELATÓRIO DE LEITURA DO ONVIO (sem nomes de empresas ou pessoas)', ''];
   for (const p of rep.passos) L.push(`${p.ok ? '[ok]' : '[FALHOU]'} ${p.nome}: ${p.detalhe}`);
+  if (rep.via) L.push('', `Jeito de ler: ${rep.via}`);
+  if (rep.fontes) L.push(`Fontes das empresas: ${Object.entries(rep.fontes).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
   if (rep.empresas) L.push('', `Empresas: ${JSON.stringify(rep.empresas)}`);
+  if (rep.situacoes) L.push(`Situação das empresas: ${JSON.stringify(rep.situacoes)}`);
   if (rep.idQueFunciona) L.push(`Id usado nos documentos: ${rep.idQueFunciona}`);
   if (rep.amostra) {
     const a = rep.amostra;
     L.push('', `Projetos da empresa de teste: ${a.projetos}${a.raizUnica ? ' (raiz única)' : ''}`, `Pastas de primeiro nível: ${a.nomesDeNivel1.join(' | ') || '(nenhuma)'}`,
-      `Origem dos arquivos lidos: ${JSON.stringify(a.origens)}`, `Campos do projeto: ${(a.camposProjeto || []).join(', ')}`, `Campos da pasta: ${(a.camposPasta || []).join(', ')}`, `Campos do documento: ${(a.camposDocumento || []).join(', ')}`);
+      `Origem dos arquivos lidos: ${JSON.stringify(a.origens)}`, `Autores na amostra: ${JSON.stringify(a.autores)}`, `Campos do projeto: ${(a.camposProjeto || []).join(', ')}`, `Campos da pasta: ${(a.camposPasta || []).join(', ')}`, `Campos do documento: ${(a.camposDocumento || []).join(', ')}`);
   }
   if (rep.avisos.length) L.push('', ...rep.avisos.map(a => `AVISO: ${a}`));
+  if (rep.chamadas && rep.chamadas.length) L.push('', 'Chamadas ao Onvio (rota, quantas, falhas):', ...rep.chamadas.map(c => `  ${c.falhas ? '[FALHOU]' : '[ok]    '} ${c.rota}  x${c.n}${c.falhas ? `  falhas: ${c.falhas}  ${c.erro}` : ''}`));
   return L.join('\n');
+}
+
+// ---------- Resposta HTTP -> dados (ou erro que diz o que aconteceu) ----------
+export function lerResposta(v) {
+  const tipo = String(v.ct || '').split(';')[0] || 'sem tipo';
+  if (v.status === 401 || v.status === 403) throw new AuthError('HTTP ' + v.status);
+  if (v.status >= 300 && v.status < 400) throw new AuthError('redirecionou (HTTP ' + v.status + ')');
+  if (v.status < 200 || v.status >= 300) throw new Error('HTTP ' + v.status);
+  if (!/json/i.test(v.ct || '')) throw new AuthError('o Onvio devolveu uma página (' + tipo + ') em vez de dados');
+  try { return JSON.parse(v.body); } catch (e) { throw new Error('resposta inválida do Onvio'); }
+}
+const dorme = ms => new Promise(r => setTimeout(r, ms));
+/**
+ * Lê com o jeito que funcionar: tenta os "brutos" na ordem (lembrando o que deu certo). Espera e tenta de novo em 503/429.
+ * brutos: [{ via, f: async url => ({status, ct, body}) }]. Devolve fetcher; fetcher.via diz o jeito usado por último.
+ */
+export function fetcherComFallback(brutos, { espera = dorme } = {}) {
+  let preferido = 0;
+  const f = async url => {
+    const falhas = [];
+    for (let k = 0; k < brutos.length; k++) {
+      const i = (preferido + k) % brutos.length, b = brutos[i];
+      let v = await b.f(url);
+      if (v.status === 503) { await espera(800); v = await b.f(url); }
+      if (v.status === 429) { await espera(3000); v = await b.f(url); }
+      try { const dados = lerResposta(v); preferido = i; f.via = b.via; return dados; }
+      catch (e) {
+        if (v.status === 0) falhas.push(`${b.via}: falha de rede`);
+        else if (v.status >= 200 && v.status < 300 && /json/i.test(v.ct || '')) throw e;   // resposta boa, mas inválida: outro jeito não ajuda
+        else if (v.status === 404 || v.status === 400 || v.status === 412) throw e;           // a rota recusou o pedido: outro jeito não ajuda
+        else falhas.push(`${b.via}: ${e.message}`);
+      }
+    }
+    throw new AuthError('Tentativas: ' + falhas.join(' · '));
+  };
+  return f;
+}
+
+// ---------- Leitura automática ----------
+/** Precisa ler agora? Dados do Onvio ausentes ou velhos, leitura ligada e sem tentativa recente. */
+export function precisaColetar({ snapshot, cfg, agora = Date.now(), estado }) {
+  if (cfg.autoLer === false) return false;
+  const horas = Number(cfg.horasAuto) > 0 ? Number(cfg.horasAuto) : 6;
+  const velho = !snapshot || snapshot.fonte !== 'onvio' || agora - snapshot.coletadoEm > horas * 36e5;
+  if (!velho) return false;
+  if (estado && estado.fimEm && estado.estado !== 'ok' && agora - estado.fimEm < 30 * 60 * 1000) return false;   // falhou há pouco: espera 30 min
+  return true;
 }

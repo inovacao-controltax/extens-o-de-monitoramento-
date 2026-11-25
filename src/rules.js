@@ -34,7 +34,8 @@ export function checkPastas(docs, cfg) {
     if (!top || ok.has(norm(top))) continue;
     const k = `${d.cnpj}|${norm(top)}`;
     const g = grupos.get(k) || { empresa: d.empresa, cnpj: d.cnpj, pasta: top, arquivos: 0 };
-    g.arquivos++; grupos.set(k, g);
+    if (d.arquivo) g.arquivos++;
+    grupos.set(k, g);
   }
   return [...grupos.values()].sort((a, b) => a.empresa.localeCompare(b.empresa, 'pt-BR'));
 }

@@ -62,4 +62,12 @@
   // O hub (dentro do quadro) pede para fechar. Só vale da janela do nosso quadro e da origem da extensão.
   window.addEventListener('message', e => { if (frame && e.source === frame.contentWindow && e.origin === ORIGEM && e.data && e.data.tipo === 'controlmon-fechar') fechar(); });
   chrome.runtime.onMessage.addListener(m => { if (m && m.tipo === 'controlmon-alternar') alternar(); });
+
+  // Leitura automática do Onvio em segundo plano (sem clique). O andamento aparece na dica e na cor da bolinha.
+  const dica = 'Hub de Monitoramento (Alt+Shift+M)';
+  function estado(e) {
+    b.title = e.estado === 'rodando' ? `${dica}\nLendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? `${dica}\n${e.msg}` : e.estado === 'cliente' ? dica : `${dica}\nLeitura: ${e.msg || e.estado}`;
+    b.style.background = e.estado === 'rodando' ? '#B5530C' : '#C2000C';
+  }
+  import(chrome.runtime.getURL('src/auto-coleta.js')).then(m => m.iniciar({ onEstado: estado })).catch(() => { /* leitura automática indisponível */ });
 })();

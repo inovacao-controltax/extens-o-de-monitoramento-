@@ -59,7 +59,7 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
-let cfg = null, snap = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+let cfg = null, snap = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6;
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const source = () => (real() ? { docs: real().docs, users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
@@ -72,7 +72,17 @@ const universo = () => (real() ? Math.max(1, real().qualidade.lidas || 0) : SAMP
 const coletadoEm = () => (real() ? real().coletadoEm : SAMPLE.coletadoEm);
 const fonteNome = () => (real() ? 'Dados do Onvio' : 'Dados de exemplo');
 const hora = () => new Date(coletadoEm()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+function recadoAndamento() {
+  if (!andamento) return [];
+  if (andamento.estado === 'rodando') return [{ id: 'lendo', titulo: 'Lendo o Onvio agora', texto: `${andamento.msg || 'Em andamento'}. Pode usar o Onvio normalmente; os números atualizam sozinhos.` }];
+  if (andamento.estado === 'sem_sessao') return [{ id: 'semsessao', titulo: 'Leitura automática parada', texto: `${andamento.msg}. Entre no Onvio com o usuário do escritório; tenta de novo em até 30 min.` }];
+  if (andamento.estado === 'erro') return [{ id: 'erroleitura', titulo: 'A leitura automática falhou', texto: `${andamento.msg}. Abra Coleta do Onvio e use "Testar leitura" para ver o motivo.` }];
+  return [];
+}
 function recadosAtuais() {
+  return [...recadoAndamento(), ...recadosBase()];
+}
+function recadosBase() {
   if (!real()) return SAMPLE.recados;
   const q = real().qualidade, out = [];
   const horas = Math.floor((Date.now() - real().coletadoEm) / 36e5);
@@ -126,10 +136,11 @@ function hojeHtml() {
   const C = 2 * Math.PI * 52, okLen = C * pct / 100;
   const all = KEYS.flatMap(k => data(k).map(r => ({ k, r })));
   const top = all.sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1))[0];
-  const hero = `<div class="card hero"><div class="ring"><svg viewBox="0 0 120 120"><circle class="bg" cx="60" cy="60" r="52"/><circle class="warn" cx="60" cy="60" r="52" stroke-dasharray="${C}"/><circle class="ok" cx="60" cy="60" r="52" stroke-dasharray="${okLen} ${C}"/></svg><b>${pct}%</b></div>
+  const semLeitura = !!real() && !(real().qualidade.lidas > 0);
+  const hero = `<div class="card hero"><div class="ring"><svg viewBox="0 0 120 120"><circle class="bg" cx="60" cy="60" r="52"/><circle class="warn" cx="60" cy="60" r="52" stroke-dasharray="${C}"/><circle class="ok" cx="60" cy="60" r="52" stroke-dasharray="${okLen} ${C}"/></svg><b>${semLeitura ? '—' : pct + '%'}</b></div>
     <div><span class="eyebrow">Carteira no portal · ${real() ? 'coleta do Onvio' : 'coleta de exemplo'} ${hora()}</span>
-    <h2>${n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
-    <p>${Math.max(0, universo() - empresasComPend)} de ${universo()} empresas sem pendência de documentos</p>
+    <h2>${semLeitura ? 'Nada foi lido ainda' : n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
+    <p>${semLeitura ? 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.' : `${Math.max(0, universo() - empresasComPend)} de ${universo()} empresas sem pendência de documentos`}</p>
     ${top ? `<div class="inner"><span class="badge ${TABS[top.k].sev}">Mais urgente</span><b>${esc(TABS[top.k].step(top.r)[0])}</b></div>` : ''}
     <div class="inner"><span>Monitores:</span>${KEYS.map(k => `<span class="chip ${TABS[k].sev.replace('s-', 'c-')}" style="--c:var(--status-${TABS[k].sev.slice(2)})">${esc(TABS[k].label)} <small>${data(k).length}</small></span>`).join('')}</div></div></div>`;
   const steps = all.slice(0, 3).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
@@ -197,6 +208,16 @@ if (camada) {
 }
 Promise.all([loadConfig(), loadSnapshot()]).then(([c, sn]) => {
   cfg = c; snap = sn; recompute(); setTimeout(render, 300);
-  const velho = !real() || Date.now() - real().coletadoEm > VELHO_H * 36e5;
-  if (camada && cfg.autoColetar && velho) setTimeout(() => { go('coleta'); setTimeout(() => $('coletar')?.click(), 400); }, 700);
 });
+
+// A leitura automática grava a coleta e o andamento no armazenamento: o painel acompanha sozinho, sem clique.
+try {
+  chrome.storage.onChanged.addListener(async (ch, area) => {
+    if (area !== 'local') return;
+    if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
+    if (ch['monitor-snapshot']) { snap = await loadSnapshot(); recompute(); }
+    if ((ch['monitor-snapshot'] || ch['monitor-coleta-estado']) && state.view !== 'coleta' && state.view !== 'config') render();
+    else if (ch['monitor-snapshot']) renderNav();
+  });
+  chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; });
+} catch (e) { /* fora da extensão */ }

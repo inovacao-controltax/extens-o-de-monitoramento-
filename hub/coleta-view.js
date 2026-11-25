@@ -1,6 +1,6 @@
 import { criarFetcher, abaOnvio, pausa } from '../src/onvio-tab.js';
-import { listarClientes, coletar, diagnosticar, textoDoRelatorio, AuthError } from '../src/onvio-reader.js';
-import { loadConfig, saveConfig, SETORES } from '../src/config.js';
+import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, AuthError } from '../src/onvio-reader.js';
+import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS } from '../src/config.js';
 import { loadSnapshot, saveSnapshot, clearSnapshot } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
 
@@ -15,7 +15,7 @@ export async function renderColeta(root, { toast, onChanged }) {
       <p id="aba" class="note-txt"></p>
       <div class="field" id="f-lim"><label for="lim">Empresas nesta coleta</label>
         <input id="lim" class="num" type="number" min="0" value="20" inputmode="numeric"><span class="hint">0 = todas as empresas ativas (pode levar vários minutos). Comece com poucas para conferir.</span></div>
-      <label class="chk"><input type="checkbox" id="auto"> Coletar sozinho ao abrir por cima do Onvio (se os dados têm mais de 6 h)</label>
+      <label class="chk"><input type="checkbox" id="auto"> Ler o Onvio sozinho, em segundo plano, quando os dados têm mais de 6 h (sem precisar clicar)</label>
       <div class="row"><button class="btn" id="testar" type="button">Testar leitura</button><button class="btn btn-primary" id="coletar" type="button">Coletar agora</button><button class="btn btn-ghost" id="parar" type="button" hidden>Parar</button></div>
       <div id="prog" hidden><progress id="bar" max="1" value="0"></progress><span id="progtxt" class="note-txt"></span></div></section>
     <section class="card"><h2>Dados coletados</h2><div id="dados"></div></section>
@@ -51,7 +51,9 @@ export async function renderColeta(root, { toast, onChanged }) {
     ocupado(true); $('#rel').textContent = 'Lendo…'; $('#copiar').disabled = true;
     try {
       const cfg = await loadConfig();
-      const rep = await diagnosticar(await criarFetcher(), { pausa, conhecidas: [...cfg.allowedFolders, ...SETORES] });
+      const log = [], f = await criarFetcher({ onChamada: c => log.push(c) });
+      const rep = await diagnosticar(f, { pausa, conhecidas: cfg.allowedFolders, chamadas: log, via: f.via });
+      rep.via = f.via;
       $('#rel').textContent = textoDoRelatorio(rep); $('#copiar').disabled = false;
       toast(rep.passos.every(p => p.ok) ? 'Leitura funcionando' : 'Leitura com problemas, veja o relatório', rep.passos.every(p => p.ok) ? 'ok' : 'warn');
     } catch (e) { falha(e); } finally { ocupado(false); aba(); }
@@ -63,17 +65,17 @@ export async function renderColeta(root, { toast, onChanged }) {
     parar = false; $('#parar').disabled = false; ocupado(true); $('#prog').hidden = false; $('#bar').value = 0; $('#progtxt').textContent = 'Lendo a lista de empresas…';
     try {
       const cfg = await loadConfig(), f = await criarFetcher();
-      const conhecidas = [...cfg.allowedFolders, ...SETORES];
+      const conhecidas = cfg.allowedFolders;
       const { clientes, falhaCnd } = await listarClientes(f, { pausa });
       const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
-      const r = await coletar(f, clientes, { limite: lim, pausa, conhecidas, parar: () => parar,
+      const r = await coletar(f, clientes, { limite: lim, pausa, conhecidas, descer: DEPARTAMENTOS_LIDOS, parar: () => parar,
         onProgresso: p => { $('#bar').max = p.total || 1; $('#bar').value = p.feito; $('#progtxt').textContent = `${p.feito} de ${p.total} empresas`; } });
       await saveSnapshot({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, totalEmpresas: ativas, qualidade: r.qualidade, parcial: r.qualidade.interrompida || (lim > 0 && lim < ativas), falhaCnd: falhaCnd || '' });
       await dados(); onChanged?.();
       toast(r.qualidade.interrompida ? 'Coleta interrompida, dados parciais guardados' : `Coleta concluída: ${r.qualidade.lidas} empresas`, r.qualidade.interrompida ? 'warn' : 'ok');
     } catch (e) { falha(e); } finally { ocupado(false); $('#prog').hidden = true; aba(); }
   });
-  const cfg0 = await loadConfig(); $('#auto').checked = !!cfg0.autoColetar;
-  $('#auto').addEventListener('change', async e => { const c = await loadConfig(); c.autoColetar = e.target.checked; const r = await saveConfig(c); toast(r.ok ? (c.autoColetar ? 'Vai coletar sozinho ao abrir' : 'Coleta só quando você pedir') : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); });
+  const cfg0 = await loadConfig(); $('#auto').checked = cfg0.autoLer !== false;
+  $('#auto').addEventListener('change', async e => { const c = await loadConfig(); c.autoLer = e.target.checked; const r = await saveConfig(c); toast(r.ok ? (c.autoLer ? 'Vai ler o Onvio sozinho' : 'Leitura automática desligada') : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); });
   await aba(); await dados();
 }
