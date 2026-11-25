@@ -7,7 +7,8 @@ import { guardar, coletar, listarClientes, perfilDaSessao, fetcherComFallback, p
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
 import { loadSnapshot, saveSnapshot } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
-import { lerEnviosPorSolicitacao } from './solicitacoes.js';
+import { lerEnviosPorSolicitacao, assinaturaTreinadas } from './solicitacoes.js';
+import { rodarHistorico } from './historico-auto.js';
 
 export const CHAVE_ESTADO = 'monitor-coleta-estado', CHAVE_TRAVA = 'monitor-coleta-trava', CHAVE_CLIENTES = 'monitor-clientes';
 export const CHAVE_NOTIF = 'monitor-notificacoes';
@@ -112,7 +113,6 @@ export async function rodarTreinados() {
  */
 export const CHAVE_SOLIC = 'monitor-solicitacoes', CHAVE_SOLIC_ESTADO = 'monitor-solicitacoes-estado';
 let lendoSolic = false;
-export const assinaturaTreinadas = trained => (trained || []).map(t => t.cnpj).sort().join(',');
 export async function rodarSolicitacoes() {
   if (lendoSolic) return;
   try {
@@ -123,12 +123,13 @@ export async function rodarSolicitacoes() {
     if (mesmas && agora - (g.em || 0) < 3600 * 1000) return;
     if (e && e.estado === 'lendo' && agora - e.em < 5 * 60 * 1000) return;
     if (e && e.estado !== 'lendo' && e.estado !== 'ok' && agora - e.em < 10 * 60 * 1000) return;
+    const guardado = (await st().get(CHAVE_CLIENTES))[CHAVE_CLIENTES];
+    if (!guardado || !guardado.clientes) return;       // a lista de clientes vem da leitura principal; sem ela as Solicitações esperam (nunca refaz a lista aqui)
     lendoSolic = true;
     await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'lendo', em: agora } });
     const { f } = criarFetcher();
     try { if (perfilDaSessao(await f(API + 'security/v1/session-and-bindings')) === 'cliente') { await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'cliente', em: Date.now() } }); return; } } catch (x) { /* só informativa */ }
-    const guardado = (await st().get(CHAVE_CLIENTES))[CHAVE_CLIENTES];
-    const clientes = guardado && guardado.clientes ? guardado.clientes : (await listarClientes(f, { pausa })).clientes;
+    const clientes = guardado.clientes;
     const porCnpj = new Map(clientes.filter(c => c.cnpj && c.codigo).map(c => [c.cnpj, String(c.codigo)]));
     const codCnpj = {}; for (const t of cfg.trained) { const cod = porCnpj.get(t.cnpj); if (cod) codCnpj[cod] = t.cnpj; }
     const desde = new Date(agora - (cfg.diasSemEnvio || 30) * 864e5).toISOString().slice(0, 10);
@@ -158,8 +159,27 @@ export async function rodarAgora({ onEstado } = {}) {
   } finally { rodando = false; await soltar(); }
 }
 
+/**
+ * Um ciclo por vez, em fila, para nada disputar o Onvio com a leitura principal das empresas (que é a que importa e a mais pesada):
+ * primeiro o que é leve e rápido (notificações da equipe e treinados do Hub), depois a leitura principal e SÓ DEPOIS os extras
+ * (Solicitações e histórico). Se um ciclo ainda está rodando, o minuto seguinte espera: nada se acumula nem roda em paralelo.
+ */
+let cicloAtivo = false;
+export async function ciclo(onEstado) {
+  if (cicloAtivo) return;
+  cicloAtivo = true;
+  try {
+    await rodarNotifs();
+    await rodarTreinados();
+    await rodarAgora({ onEstado });
+    await rodarSolicitacoes();
+    await rodarHistorico();
+  } catch (e) { /* cada etapa já guarda o próprio erro; o ciclo seguinte tenta de novo */ }
+  finally { cicloAtivo = false; }
+}
+
 /** Liga a leitura: começa 2 s depois de a página abrir e confere a cada minuto se há o que ler (completa a cada `horasAuto`, rápida a cada 10 min). */
 export function iniciar({ onEstado, atrasoMs = 2000, cadaMs = 60 * 1000 } = {}) {
-  setTimeout(() => { rodarNotifs(); rodarTreinados(); rodarSolicitacoes(); rodarAgora({ onEstado }); }, atrasoMs);
-  setInterval(() => { rodarNotifs(); rodarTreinados(); rodarSolicitacoes(); rodarAgora({ onEstado }); }, cadaMs);
+  setTimeout(() => ciclo(onEstado), atrasoMs);
+  setInterval(() => ciclo(onEstado), cadaMs);
 }

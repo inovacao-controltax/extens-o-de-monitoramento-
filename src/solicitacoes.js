@@ -70,3 +70,6 @@ export async function lerEnviosPorSolicitacao(fetcher, alvos, { desde, pausa, ma
   }
   return { porCodigo, lidas, tramites, limitada };
 }
+
+/** Identifica a lista de empresas acompanhadas (para saber se a leitura das Solicitações ainda vale). */
+export const assinaturaTreinadas = trained => (trained || []).map(t => t.cnpj).sort().join(',');
