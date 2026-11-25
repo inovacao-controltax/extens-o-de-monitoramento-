@@ -6,8 +6,8 @@
 | 2 | **Configurações** (padrão de nome com teste ao vivo, pastas permitidas, dias sem envio, lista de treinados colada da planilha) salvas no navegador | feito |
 | 3 | **Regras de verificação** (`src/rules.js`) com testes, calculadas sobre dados brutos de exemplo e ligadas às configurações salvas | feito |
 | 4a | **Modo descoberta do padrão** (cole nomes de arquivos e veja os formatos mais comuns; sugere pastas) e **treinados a partir do Hub** (mesma regra do Portal: concluído ou em andamento, marcando "parcial"). CNPJ alfanumérico aceito | feito |
-| 4b | Mapear o portal real com o `docs/roteiro-mapeamento-onvio.md` (quem enviou o arquivo, lista de empresas, último envio, notificações do Gestta) | aguardando o roteiro rodar no Chrome |
-| 4c | Leitura real do Onvio (somente GET, mesmas rotas e limites do Control Onvio) | a fazer, depende da 4b |
+| 4b | Mapear o portal real: **a própria extensão faz** (botão "Testar leitura" gera um relatório só com nomes de campos). O `docs/roteiro-mapeamento-onvio.md` continua valendo para o que a extensão não alcança | em teste no Chrome |
+| 4c | **Leitura do Onvio pela extensão** (`src/onvio-reader.js`): só GET em lista fechada de rotas do Control Onvio, uma empresa por vez, pela aba logada. Tela "Coleta do Onvio" (testar, coletar com limite, parar, apagar). Painel passa a usar os dados reais | feito nos testes, **a conferir no Onvio real** |
 | 5 | Coleta real do Gestta (usuários e notificações) | a fazer, depende da 4b |
 | 6 | Varredura de todas as empresas, histórico, badge e alertas | a fazer |
 | 7 | Ações (avisar cliente por e-mail/Zappy), exportação CSV | a fazer |
