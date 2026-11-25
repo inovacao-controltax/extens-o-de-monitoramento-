@@ -94,7 +94,7 @@ function recadosBase() {
   if (q.semCnpj) out.push({ id: 'cnpj', titulo: `${q.semCnpj} empresa(s) sem CNPJ`, texto: 'Sem CNPJ elas não casam com a lista de treinados do Hub.' });
   if (!cfg.trained.length) out.push({ id: 'treinados', titulo: 'Lista de treinados vazia', texto: 'Cadastre os clientes treinados em Configurações para ativar "Treinados sem envio".' });
   if (!nsnap) out.push({ id: 'notif', titulo: 'Notificações ainda não lidas', texto: 'A leitura das notificações da equipe é automática com o Onvio aberto.' });
-  else if (nsnap.itens.length && nsnap.itens.every(u => u.estado === 'padrao')) out.push({ id: 'notifpadrao', titulo: 'Notificações: nenhum funcionário com configuração salva', texto: 'Nenhum funcionário teve a configuração alterada. Valem os avisos padrão do Onvio (ligados): nada a fazer.' });
+  else if (nsnap.itens.length && nsnap.itens.every(u => u.estado === 'padrao')) out.push({ id: 'notifpadrao', titulo: 'Notificações: nenhum funcionário com configuração salva', texto: 'Nenhum funcionário teve a configuração alterada. No Onvio eles aparecem desmarcados: marque a opção em Coleta para listá-los.' });
   return out;
 }
 const state = { lim: {}, view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), dispensados: new Set() };
@@ -147,7 +147,7 @@ function tableHtml(k) {
       return `<div class="empty"><b>Notificações ainda não lidas.</b><p>${motivo} Ou use "Testar leitura das notificações" em Coleta.</p></div>`;
     }
     const padrao = nsnap.itens.filter(u => u.estado === 'padrao').length, conf = nsnap.itens.filter(u => u.estado === 'configurado').length;
-    return `<div class="empty"><b>Ninguém está sem aviso de nova solicitação.</b><p>${conf} funcionário(s) têm configuração salva e todos recebem o aviso (e-mail ou sistema). Outros ${padrao} nunca tiveram a configuração alterada: valem os avisos padrão do Onvio, que são ligados, e por isso não entram aqui.</p></div>`;
+    return `<div class="empty"><b>Ninguém está sem aviso de nova solicitação.</b><p>${conf} funcionário(s) têm configuração salva e todos recebem o aviso (e-mail ou sistema). Outros ${padrao} nunca tiveram a configuração alterada (no Onvio aparecem desmarcados) e não estão sendo contados: marque a opção em Coleta para listá-los.</p></div>`;
   }
   if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;

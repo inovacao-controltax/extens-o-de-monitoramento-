@@ -10,7 +10,7 @@ export const DEFAULT_CONFIG = {
   autoLer: true,      // ler o Onvio sozinho, em segundo plano, quando os dados têm mais de horasAuto
   horasAuto: 6,
   gesttaCampo: '',    // caminho do campo "recebe notificação de tarefa nova" no cadastro do funcionário (vazio = detectar)
-  notifPadraoDesligado: false,   // funcionário SEM configuração salva (padrão do Onvio) conta como notificação desativada?
+  notifPadraoDesligado: true,   // funcionário SEM configuração salva (404) conta como desativado? Confirmado: no Onvio ele aparece com "nova Solicitação" desmarcada
   notifCampoEmail: '', notifCampoSistema: '',   // caminhos dos campos "nova Solicitação de Serviço" (vazio = detectar)
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
