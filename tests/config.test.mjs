@@ -9,10 +9,10 @@ test('CNPJ: válido, dígito errado e tamanho errado', () => {
   assert.equal(isValidCnpj('11111111111111'), false);
   assert.equal(formatCnpj('11222333000181'), '11.222.333/0001-81');
 });
-test('padrão de nome de exemplo', () => {
+test('padrão oficial: MM-AAAA antes do nome do arquivo', () => {
   const p = DEFAULT_CONFIG.filePattern;
-  assert.equal(testFileName(p, '2026-11 - NFE - entradas.pdf'), true);
-  assert.equal(testFileName(p, 'scan0001.pdf'), false);
+  for (const ok of ['10-2026 Folha de pagamento.pdf', '01-2027 NFe entradas.xml', '12-2026 x']) assert.equal(testFileName(p, ok), true, ok);
+  for (const ruim of ['scan0001.pdf', '2026-11 - NFE - entradas.pdf', '13-2026 Folha.pdf', '00-2026 Folha.pdf', '10-2026Folha.pdf', '10-2026 ', 'Folha 10-2026.pdf', '10-26 Folha.pdf']) assert.equal(testFileName(p, ruim), false, ruim);
   assert.equal(testFileName(p, ''), null);
   assert.equal(testFileName('(', 'x'), null);
 });

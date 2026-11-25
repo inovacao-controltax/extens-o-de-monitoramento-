@@ -2,8 +2,9 @@
 // Fora da extensão (prévia no navegador comum) cai para localStorage, e sem ele, para memória.
 
 export const DEFAULT_CONFIG = {
-  // Padrão de EXEMPLO "AAAA-MM - TIPO - Descrição.ext". Trocar pelo padrão oficial da ControlTax.
-  filePattern: '^\\d{4}-\\d{2} - [A-Za-z0-9ÇÃÕÁÉÍÓÚ ]+ - .+\\.(pdf|xlsx?|xml|ofx|csv|zip)$',
+  // Padrão oficial da ControlTax (Josué, 25/11/2026): a competência MM-AAAA vem ANTES do nome do arquivo; o que foge disso está errado.
+  // Ex.: "10-2026 Folha de pagamento.pdf".
+  filePattern: '^(0[1-9]|1[0-2])-20\\d{2} \\S.*$',
   // Os 8 projetos (departamentos) que o Onvio cria em toda empresa, mais Contábil e Comunicados como variações comuns.
   allowedFolders: ['Administrativo', 'Certidão Negativa de Débito', 'Contabilidade', 'Contábil', 'Financeiro', 'Fiscal', 'Patrimônio', 'Pessoal', 'Registro de Empresas', 'Comunicados'],
   diasSemEnvio: 30,
@@ -18,6 +19,7 @@ export const DEFAULT_CONFIG = {
 export const SETORES = ['Pessoal', 'Fiscal', 'Contábil', 'Financeiro'];
 // Projetos onde a leitura desce até os arquivos (os outros entram só pelo nome, para a leitura ser mais rápida).
 export const DEPARTAMENTOS_LIDOS = ['Pessoal', 'Fiscal', 'Contabilidade', 'Contábil', 'Financeiro'];
+const PADRAO_ANTIGO = '^\\d{4}-\\d{2} - [A-Za-z0-9ÇÃÕÁÉÍÓÚ ]+ - .+\\.(pdf|xlsx?|xml|ofx|csv|zip)$';   // exemplo das primeiras versões
 const LISTA_ANTIGA = ['Contábil', 'Fiscal', 'Pessoal', 'Financeiro', 'Comunicados'];   // padrão da 1ª versão: dava alarme falso em toda empresa
 const KEY = 'monitor-config';
 
@@ -105,6 +107,7 @@ export async function loadConfig() {
     else if (typeof localStorage !== 'undefined') saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     else saved = memory;
   } catch (e) { console.error('loadConfig', e); }
+  if (saved && saved.filePattern === PADRAO_ANTIGO) saved.filePattern = DEFAULT_CONFIG.filePattern;   // troca o exemplo antigo pelo padrão oficial
   if (saved && Array.isArray(saved.allowedFolders) && JSON.stringify(saved.allowedFolders) === JSON.stringify(LISTA_ANTIGA)) saved.allowedFolders = structuredClone(DEFAULT_CONFIG.allowedFolders);
   return { ...structuredClone(DEFAULT_CONFIG), ...(saved || {}) };
 }
