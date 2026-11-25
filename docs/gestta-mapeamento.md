@@ -1,5 +1,7 @@
 # Gestta: o que foi mapeado para o monitor de notificações
 
+> **Atualização:** a configuração de notificação por funcionário que o monitor procura **fica no Onvio** (Configurações › Notificações dos usuários do escritório), não no Gestta. Veja `docs/onvio-notificacoes.md`. O restante deste arquivo continua valendo como mapa do Gestta.
+
 Fonte: leitura real (Testar leitura do Gestta) e "Aprender chamadas" feitos no Gestta de verdade em 25/11/2026. Só rotas e **nomes** de campos; nenhum valor.
 
 ## Conclusão: não existe liga/desliga de notificação por funcionário

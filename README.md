@@ -46,3 +46,7 @@ Com uma aba do **Gestta** aberta e logada, a extensão lê os funcionários sozi
 - A bolinha da extensão também aparece no Gestta (canto inferior direito, arrastável) e abre o painel por cima dele. A leitura do Onvio só roda em página do Onvio.
 - **Usuário sem departamento:** se o seu usuário no Gestta não tem departamento vinculado, a busca de tarefas pode vir zerada para todos. O diagnóstico e o painel avisam ("Nenhum funcionário aparece com tarefas ativas"); entre com um gestor/administrador ou peça para vincular um departamento.
 - Se o Gestta recusar o cadastro de funcionários (403), o painel diz que falta acesso; a extensão não pré-julga o papel da pessoa.
+
+## Notificações do escritório (Onvio)
+O liga/desliga de notificação de cada funcionário fica no **Onvio** (Configurações › Notificações dos usuários do escritório): "A cada nova Solicitação de Serviço › via e-mail / via sistema". Detalhes em `docs/onvio-notificacoes.md`.
+Para a extensão aprender a ler essa tela: **Coleta do Onvio › Aprender chamadas do Onvio (2 h)**, abra a tela e o lápis de um funcionário (sem salvar), e use **Ver chamadas observadas do Onvio**. O modo aprender registra só método, rota sem ids e **nomes** de campos (nunca valores, token ou cabeçalhos), só roda enquanto ligado e não toca em `fetch`/XHR da página antes disso.

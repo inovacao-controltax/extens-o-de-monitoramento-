@@ -216,3 +216,6 @@ progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-de
   .ttl{flex:1 1 90px;}
   .bar .btn,.bar .icon-btn,.pill-status,.seg{flex:none;}
 }
+
+.passos{margin:0 0 var(--sp-3);padding-left:var(--sp-5);font-size:var(--fs-control);color:var(--ink-2);}
+.passos li{margin:4px 0;}

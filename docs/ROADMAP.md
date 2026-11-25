@@ -13,6 +13,7 @@
 | 4f | **Leitura ao vivo**: dados parciais no painel desde a 1ª empresa, 4 em paralelo, treinadas primeiro, releitura rápida das treinadas a cada 10 min, sem dados de exemplo enquanto lê | feito (Chromium real: 1º dado em ~3 s, 150 empresas em ~20 s com 100 ms de latência) |
 | 4g | Painel sem piscar durante a leitura (sem animação nas atualizações, rolagem preservada, só redesenha o que mudou, tabelas de 200 em 200) e **anel de progresso** no bloco de status que enche conforme a leitura ("84 de 150 · 56%") | feito |
 | 5 | **Gestta · notificações desativadas**: leitor só de leitura (token só na página, dados sensíveis nunca lidos), leitura automática, detecção do campo, modo aprender e monitor no painel | feito (testado em Chromium real com Gestta simulado); **a conferir no Gestta real**: onde fica o campo da notificação |
+| 5b | **Notificações do escritório (Onvio)**: modo aprender do Onvio (feito); leitura da tela de notificações e monitor com o aviso de nova solicitação desligado | aguardando as chamadas observadas |
 | 6 | Varredura de todas as empresas, histórico, badge e alertas | a fazer |
 | 7 | Ações (avisar cliente por e-mail/Zappy), exportação CSV | a fazer |
 
