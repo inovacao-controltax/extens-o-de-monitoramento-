@@ -72,6 +72,28 @@ async function lerNotifs(cfg) {
   const r = await lerNotificacoesEscritorio(f, { pausa, campos: { email: cfg.notifCampoEmail, sistema: cfg.notifCampoSistema } });
   await st().set({ [CHAVE_NOTIF]: { fonte: 'onvio', em: Date.now(), total: r.total, campos: r.campos, itens: r.itens } });
 }
+export const CHAVE_NOTIF_ESTADO = 'monitor-notificacoes-estado';
+let lendoNotif = false;
+/** Leitura própria das notificações: não depende da leitura das empresas (nem da trava, nem do recuo de 30 min dela). */
+export async function rodarNotifs() {
+  if (lendoNotif) return;
+  try {
+    const cfg = await loadConfig();
+    if (cfg.autoLer === false) return;
+    const g = (await st().get(CHAVE_NOTIF))[CHAVE_NOTIF], e = (await st().get(CHAVE_NOTIF_ESTADO))[CHAVE_NOTIF_ESTADO];
+    if (!precisaNotifs(g, cfg)) return;
+    if (e && e.estado === 'lendo' && Date.now() - e.em < 3 * 60 * 1000) return;                  // outra aba está lendo
+    if (e && e.estado !== 'lendo' && Date.now() - e.em < 5 * 60 * 1000) return;                  // falhou há pouco: espera 5 min
+    lendoNotif = true;
+    await st().set({ [CHAVE_NOTIF_ESTADO]: { estado: 'lendo', em: Date.now() } });
+    const { f } = criarFetcher();
+    try { const perfil = perfilDaSessao(await f(API + 'security/v1/session-and-bindings')); if (perfil === 'cliente') { await st().set({ [CHAVE_NOTIF_ESTADO]: { estado: 'cliente', em: Date.now(), msg: 'Acesso de cliente: não lê.' } }); return; } } catch (x) { /* só informativa */ }
+    await lerNotifs(cfg);
+    await st().set({ [CHAVE_NOTIF_ESTADO]: { estado: 'ok', em: Date.now() } });
+  } catch (x) {
+    try { await st().set({ [CHAVE_NOTIF_ESTADO]: { estado: x instanceof AuthError ? 'sem_sessao' : 'erro', em: Date.now(), msg: String(x && x.message || x).slice(0, 200) } }); } catch (y) { /* nada */ }
+  } finally { lendoNotif = false; }
+}
 export const precisaNotifs = (g, cfg, agora = Date.now()) => !g || agora - (g.em || 0) >= (cfg.horasAuto || 6) * 3600 * 1000;
 
 export async function rodarAgora({ onEstado } = {}) {
@@ -81,12 +103,9 @@ export async function rodarAgora({ onEstado } = {}) {
     const cfg = await loadConfig(), snap = await loadSnapshot(), estado = (await st().get(CHAVE_ESTADO))[CHAVE_ESTADO];
     if (estado && estado.estado !== 'ok' && estado.estado !== 'rodando' && estado.fimEm && Date.now() - estado.fimEm < 30 * 60 * 1000) return;   // falhou há pouco: espera 30 min
     const completa = precisaColetar({ snapshot: snap, cfg, estado }), rapida = !completa && precisaRapida({ snapshot: snap, cfg });
-    const notif = precisaNotifs((await st().get(CHAVE_NOTIF))[CHAVE_NOTIF], cfg);
-    if (!completa && !rapida && !notif) return;
+    if (!completa && !rapida) return;
     rodando = true;
     if (!(await pegarTrava())) { rodando = false; return; }
-    // as notificações são poucas chamadas: vêm ANTES da leitura longa das empresas, para a aba não ficar vazia por minutos
-    if (notif) { try { await lerNotifs(cfg); } catch (e) { if (e instanceof AuthError) throw e; /* só as notificações falharam */ } }
     if (completa) await leituraCompleta(cfg, avisa); else if (rapida) await leituraRapida(cfg, snap, avisa);
   } catch (e) {
     avisa({ estado: e instanceof AuthError ? 'sem_sessao' : 'erro', fimEm: Date.now(), msg: String(e && e.message || e).slice(0, 200) });
@@ -95,6 +114,6 @@ export async function rodarAgora({ onEstado } = {}) {
 
 /** Liga a leitura: começa 2 s depois de a página abrir e confere a cada minuto se há o que ler (completa a cada `horasAuto`, rápida a cada 10 min). */
 export function iniciar({ onEstado, atrasoMs = 2000, cadaMs = 60 * 1000 } = {}) {
-  setTimeout(() => rodarAgora({ onEstado }), atrasoMs);
-  setInterval(() => rodarAgora({ onEstado }), cadaMs);
+  setTimeout(() => { rodarNotifs(); rodarAgora({ onEstado }); }, atrasoMs);
+  setInterval(() => { rodarNotifs(); rodarAgora({ onEstado }); }, cadaMs);
 }
