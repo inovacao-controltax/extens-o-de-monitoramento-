@@ -1,0 +1,95 @@
+/* Control Hub: tokens de design (fonte única).
+   Regras de uso em DESIGN.md. Páginas novas importam este arquivo ANTES do CSS próprio.
+   As cores mantêm os mesmos nomes do hub.css para a migração ser só "trocar valor solto por var(--...)". */
+
+:root{
+  /* ---------- Cores: tema claro ---------- */
+  --page:#EDF0F3; --surface:#FFFFFF; --surface-2:#F5F8FA; --surface-3:#EAEFF3;
+  --ink:#101820; --ink-2:#47545F; --ink-3:#5F6D77;
+  --rule:#DCE3E9; --rule-strong:#C2CCD5;
+  --brand-red:#C2000C; --brand-red-deep:#550E0B; --brand-red-soft:#FBEAEA;
+  --blue-deep:#3C659B; --blue-mid:#6BAAC9; --blue-pale:#DCE8F1;
+  --masthead:#0E151B; --masthead-2:#182229; --masthead-ink:#E9EEF2; --masthead-ink-2:#8FA0AD;
+  --sector-pessoal:#9A6B00; --sector-contabil:#0F7A55; --sector-fiscal:#6A4FA0; --sector-financeiro:#1D6FA5;
+  --status-ok:#167A45; --status-warn:#B5530C; --status-late:var(--brand-red); --status-soon:#D2452C; --status-pend:#2E7FA8; --status-none:#55687A;
+  --shadow-1:0 1px 2px rgba(16,24,32,.05), 0 6px 16px rgba(16,24,32,.06);
+  --shadow-2:0 2px 4px rgba(16,24,32,.08), 0 14px 32px rgba(16,24,32,.12);
+  color-scheme:light;
+
+  /* ---------- Tipografia ---------- */
+  --font-display:"Archivo", system-ui, sans-serif;     /* títulos */
+  --font-body:"IBM Plex Sans", system-ui, sans-serif;  /* texto, controles */
+  --font-num:"IBM Plex Mono", ui-monospace, monospace; /* CNPJ, valores, datas, códigos */
+  --fs-meta:11px;     /* legenda, rótulo de coluna, contador */
+  --fs-control:12.5px;/* botões, inputs, células de tabela */
+  --fs-body:13.5px;   /* texto corrido (base do body) */
+  --fs-lead:15px;     /* destaque de parágrafo, busca */
+  --fs-h3:18px;       /* título de bloco */
+  --fs-h2:22px;       /* título de módulo */
+  --fs-h1:28px;       /* título de página / número de KPI */
+  --lh-tight:1.2; --lh-body:1.5;
+
+  /* ---------- Espaço (múltiplos de 4) ---------- */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+
+  /* ---------- Raio ---------- */
+  --r-xs:2px;    /* badges, barras de progresso */
+  --r:4px;       /* controles, cards, tabelas (padrão) */
+  --r-lg:8px;    /* modal, popover, paleta de busca */
+  --r-pill:999px;/* chips, avatar, toggle */
+
+  /* ---------- Motion (escala da skill animacao-ui-web) ---------- */
+  --duration-stagger:40ms;
+  --duration-micro:80ms;
+  --duration-hover:120ms;   /* específico do Hub: hover de linha, botão, item de menu */
+  --duration-quick:150ms;
+  --duration-fast:250ms;
+  --duration-medium:350ms;
+  --duration-slow:400ms;
+  --duration-very-slow:500ms;
+  --ease-smooth-out:cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out:ease-in-out;
+  --ease-out:ease-out;
+  --ease-linear:linear;
+  --ease-bounce:cubic-bezier(0.34, 1.36, 0.64, 1);
+  --distance-micro:4px; --distance-small:6px; --distance-base:8px; --distance-medium:12px; --distance-large:30px;
+  --scale-large:0.96; --scale-medium:0.97; --scale-small:0.98; --scale-tiny:0.99;
+  --blur-small:2px; --blur-medium:3px; --blur-large:8px;
+}
+
+/* ---------- Tema escuro: segue o sistema, a menos que o usuário tenha escolhido claro ---------- */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --page:#0B1015; --surface:#131A21; --surface-2:#182129; --surface-3:#1E2831;
+    --ink:#E8EDF2; --ink-2:#AAB7C2; --ink-3:#7A8791;
+    --rule:#242F39; --rule-strong:#35434E;
+    --brand-red:#E8474B; --brand-red-deep:#8A1A18; --brand-red-soft:#2C1416;
+    --blue-deep:#8CC6EC; --blue-mid:#4F8CB8; --blue-pale:#1B2B38;
+    --masthead:#080D11; --masthead-2:#131C23;
+    --sector-pessoal:#B98530; --sector-contabil:#33A67C; --sector-fiscal:#9478D6; --sector-financeiro:#5FA8E0;
+    --status-ok:#4ECC8B; --status-warn:#FF9D42; --status-soon:#FF8070; --status-pend:#6BAAC9; --status-none:#A9BBCB;
+    --shadow-1:0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.35);
+    --shadow-2:0 2px 6px rgba(0,0,0,.35), 0 16px 36px rgba(0,0,0,.45);
+    color-scheme:dark;
+  }
+}
+/* ---------- Tema escuro escolhido manualmente (tema.js grava data-theme) ---------- */
+:root[data-theme="dark"]{
+  --page:#0B1015; --surface:#131A21; --surface-2:#182129; --surface-3:#1E2831;
+  --ink:#E8EDF2; --ink-2:#AAB7C2; --ink-3:#7A8791;
+  --rule:#242F39; --rule-strong:#35434E;
+  --brand-red:#E8474B; --brand-red-deep:#8A1A18; --brand-red-soft:#2C1416;
+  --blue-deep:#8CC6EC; --blue-mid:#4F8CB8; --blue-pale:#1B2B38;
+  --masthead:#080D11; --masthead-2:#131C23;
+  --sector-pessoal:#B98530; --sector-contabil:#33A67C; --sector-fiscal:#9478D6; --sector-financeiro:#5FA8E0;
+  --status-ok:#4ECC8B; --status-warn:#FF9D42; --status-soon:#FF8070; --status-pend:#6BAAC9; --status-none:#A9BBCB;
+  --shadow-1:0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.35);
+  --shadow-2:0 2px 6px rgba(0,0,0,.35), 0 16px 36px rgba(0,0,0,.45);
+  color-scheme:dark;
+}
+
+/* ---------- Movimento reduzido: obrigatório ---------- */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:1ms!important; animation-iteration-count:1!important;
+    transition-duration:1ms!important; transition-delay:0s!important; scroll-behavior:auto!important;}
+}

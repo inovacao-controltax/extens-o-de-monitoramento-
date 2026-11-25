@@ -2,26 +2,33 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Hub de Monitoramento</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hub de Monitoramento do Portal</title>
+  <script src="tema.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="hub.css">
 </head>
 <body>
-  <aside>
-    <div class="brand"><span class="dot"></span>Hub do Portal</div>
-    <nav id="nav"></nav>
-    <p class="demo">Dados fictícios — visual em construção (Fase 1)</p>
-  </aside>
-  <main>
-    <header>
-      <h1 id="title"></h1>
-      <div class="tools">
-        <input id="search" type="search" placeholder="Buscar empresa ou CNPJ…" aria-label="Buscar">
-        <button id="refresh" class="btn" disabled title="Disponível na Fase 4">Atualizar coleta</button>
-      </div>
-    </header>
-    <section id="view"></section>
-  </main>
+  <div class="app">
+    <aside class="rail" id="rail">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">C</span><div class="lbl"><b>Control Hub</b><small>Monitoramento do portal</small></div></div>
+      <nav id="nav" aria-label="Monitores"></nav>
+      <div class="rail-foot"><button class="btn theme-btn" id="themeBtn" type="button"><span aria-hidden="true">◐</span><span class="lbl">Alternar tema</span></button></div>
+    </aside>
+    <main>
+      <header class="top">
+        <div><h1 id="title"></h1><p id="sub" class="sub"></p></div>
+        <div class="row">
+          <button class="btn btn-ghost menu-btn" id="menuBtn" type="button" aria-label="Abrir menu">Menu</button>
+          <input id="search" class="search" type="search" placeholder="Buscar empresa ou CNPJ" aria-label="Buscar empresa ou CNPJ">
+          <button class="btn btn-primary" id="refresh" type="button" disabled title="Coleta real chega na Fase 4">Atualizar coleta</button>
+        </div>
+      </header>
+      <section id="view" aria-live="polite"></section>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
   <script type="module" src="hub.js"></script>
 </body>
 </html>
