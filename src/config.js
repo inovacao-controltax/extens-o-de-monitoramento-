@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG = {
   diasSemEnvio: 30,
   autoLer: true,      // ler o Onvio sozinho, em segundo plano, quando os dados têm mais de horasAuto
   horasAuto: 6,
+  gesttaCampo: '',    // caminho do campo "recebe notificação de tarefa nova" no cadastro do funcionário (vazio = detectar)
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 

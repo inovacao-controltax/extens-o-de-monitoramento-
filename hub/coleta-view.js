@@ -3,6 +3,8 @@ import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamada
 import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS } from '../src/config.js';
 import { loadSnapshot, saveSnapshot, clearSnapshot } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
+import { abaGestta, criarLeitorGestta } from '../src/gestta-tab.js';
+import { diagnosticarGestta, textoRelatorioGestta } from '../src/gestta-reader.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -19,6 +21,13 @@ export async function renderColeta(root, { toast, onChanged }) {
       <div class="row"><button class="btn" id="testar" type="button">Testar leitura</button><button class="btn btn-primary" id="coletar" type="button">Coletar agora</button><button class="btn btn-ghost" id="parar" type="button" hidden>Parar</button></div>
       <div id="prog" hidden><progress id="bar" max="1" value="0"></progress><span id="progtxt" class="note-txt"></span></div></section>
     <section class="card"><h2>Dados coletados</h2><div id="dados"></div></section>
+    <section class="card"><h2>Gestta · notificações</h2>
+      <p class="note-txt">Lê os funcionários do Gestta pela aba do Gestta que você já abriu (só leitura, entrando como gestor ou administrador) e marca quem está com o aviso de tarefa nova desligado. O token do Gestta nunca sai da página.</p>
+      <p id="abaG" class="note-txt"></p>
+      <div class="field" id="f-campo"><label for="campo">Campo da notificação (opcional)</label>
+        <input id="campo" class="num" spellcheck="false" autocomplete="off" placeholder="ex.: notifications.task_received"><span class="hint">Deixe vazio para a extensão detectar sozinha. Se ela não achar, use "Aprender chamadas" abaixo.</span></div>
+      <div class="row"><button class="btn" id="testarG" type="button">Testar leitura do Gestta</button><button class="btn" id="aprender" type="button">Aprender chamadas (2 h)</button><button class="btn btn-ghost" id="verObs" type="button">Ver chamadas observadas</button></div>
+      <div id="dadosG"></div></section>
     <section class="card wide"><h2>Relatório do teste</h2>
       <p class="note-txt">Mostra só nomes de campos e contagens, nunca nomes de empresas ou pessoas. Pode ser copiado e enviado para ajustar as regras.</p>
       <pre id="rel" class="rel">Clique em "Testar leitura" para ver se a extensão consegue ler o portal.</pre>
@@ -77,5 +86,40 @@ export async function renderColeta(root, { toast, onChanged }) {
   });
   const cfg0 = await loadConfig(); $('#auto').checked = cfg0.autoLer !== false;
   $('#auto').addEventListener('change', async e => { const c = await loadConfig(); c.autoLer = e.target.checked; const r = await saveConfig(c); toast(r.ok ? (c.autoLer ? 'Vai ler o Onvio sozinho' : 'Leitura automática desligada') : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); });
+  // ---------- Gestta ----------
+  async function abaG() { try { const t = await abaGestta(); $('#abaG').innerHTML = t ? '<span class="badge s-ok">Aba do Gestta encontrada</span>' : '<span class="badge s-warn">Nenhuma aba do Gestta aberta</span> Abra https://app.gestta.com.br e faça login: a leitura é automática.'; } catch (e) { $('#abaG').textContent = ''; } }
+  async function dadosG() {
+    let g = null, e = null;
+    try { const r = await chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']); g = r['monitor-gestta']; e = r['monitor-gestta-estado']; } catch (x) { /* fora da extensão */ }
+    const linhas = [];
+    if (g) { const desl = g.users.filter(u => u.notificaTarefa === false).length; linhas.push(`Gestta lido em <b>${new Date(g.coletadoEm).toLocaleString('pt-BR')}</b>: ${g.users.length} funcionários · campo da notificação: <span class="num">${esc(g.campo || 'não identificado')}</span> · com aviso desligado: <b>${g.campo ? desl : '—'}</b>`); }
+    if (e && e.estado !== 'ok') linhas.push(`<span class="badge ${e.estado === 'rodando' ? 's-warn' : 's-late'}">${esc(e.estado === 'rodando' ? 'Lendo' : e.estado === 'sem_acesso' ? 'Sem acesso' : e.estado === 'sem_sessao' ? 'Sem sessão' : 'Erro')}</span> ${esc(e.msg || '')}`);
+    $('#dadosG').innerHTML = linhas.length ? `<p class="note-txt">${linhas.join('<br>')}</p>` : '<p class="note-txt">Ainda não leu o Gestta nesta máquina.</p>';
+  }
+  const cfgG = await loadConfig(); $('#campo').value = cfgG.gesttaCampo || '';
+  $('#campo').addEventListener('change', async e => { const c = await loadConfig(); c.gesttaCampo = e.target.value.trim(); const r = await saveConfig(c); toast(r.ok ? 'Campo salvo, o Gestta será lido de novo' : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); });
+  $('#testarG').addEventListener('click', async () => {
+    $('#testarG').disabled = true; $('#rel').textContent = 'Lendo o Gestta…'; $('#copiar').disabled = true;
+    try {
+      const log = [], leitor = await criarLeitorGestta({ onChamada: c => log.push(c) });
+      const rep = await diagnosticarGestta(leitor, { chamadas: log, campo: $('#campo').value.trim() });
+      $('#rel').textContent = textoRelatorioGestta(rep); $('#copiar').disabled = false;
+      toast(rep.passos.every(p => p.ok) ? 'Gestta: leitura funcionando' : 'Gestta: leitura com problemas, veja o relatório', rep.passos.every(p => p.ok) ? 'ok' : 'warn');
+    } catch (e) { const m = e instanceof AuthError ? e.message : `Erro na leitura: ${e.message}`; $('#rel').textContent = m; toast(m, 'warn'); }
+    finally { $('#testarG').disabled = false; abaG(); }
+  });
+  $('#aprender').addEventListener('click', async () => {
+    await chrome.storage.local.set({ 'monitor-aprender': { ate: Date.now() + 2 * 60 * 60 * 1000 } });
+    $('#rel').textContent = 'Modo aprender ligado por 2 horas (enquanto uma aba do Gestta estiver aberta).\n\nAgora, NO GESTTA:\n1. Abra Configure > Funcionários e entre no cadastro de um funcionário.\n2. Abra as telas/abas de notificações dele (sem salvar nada).\n3. Volte aqui e clique em "Ver chamadas observadas".\n\nSó são registrados o método, a rota sem ids e os NOMES dos campos. Nunca valores, token ou cabeçalhos.';
+    toast('Modo aprender ligado por 2 h');
+  });
+  $('#verObs').addEventListener('click', async () => {
+    const o = (await chrome.storage.local.get('monitor-gestta-observadas'))['monitor-gestta-observadas'] || {};
+    const lista = Object.values(o).sort((a, b) => Number(/notif|user|alert|aviso/i.test(b.rota)) - Number(/notif|user|alert|aviso/i.test(a.rota)));
+    $('#rel').textContent = lista.length ? ['CHAMADAS OBSERVADAS NO GESTTA (rota sem ids, método, status e nomes de campos; nunca valores)', '', ...lista.flatMap(c => [`${c.metodo} ${c.rota}  [${c.status}] x${c.n}`, ...(c.corpo && c.corpo.length ? [`    enviado: ${c.corpo.join(', ')}`] : []), ...(c.campos && c.campos.length ? [`    resposta: ${c.campos.slice(0, 40).join(', ')}`] : [])])].join('\n') : 'Nenhuma chamada observada ainda. Clique em "Aprender chamadas (2 h)", navegue no Gestta e volte aqui.';
+    $('#copiar').disabled = !lista.length;
+  });
+  await abaG(); await dadosG();
+  try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && (ch['monitor-gestta'] || ch['monitor-gestta-estado'])) dadosG(); }); } catch (e) { /* nada */ }
   await aba(); await dados();
 }
