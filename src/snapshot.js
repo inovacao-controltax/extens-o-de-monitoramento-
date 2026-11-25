@@ -39,3 +39,6 @@ export function snapshotEstavel(atual, completo) {
   if (c) return { ...c, _atualizando: !!(a && a.lendo) };         // lendo ou interrompida: números estáveis da última completa
   return a;                                                       // primeira leitura: só há parcial (a tela avisa que ainda vai mudar)
 }
+
+/** "4 min 12 s" */
+export const duracaoDe = ms => { const s = Math.round(ms / 1000); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`; };

@@ -5,15 +5,15 @@
 // Para sozinha com acesso de cliente, se a sessão cair ou se o Onvio pedir calma. Uma trava impede duas abas lendo ao mesmo tempo.
 import { guardar, limitado, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
-import { loadSnapshot, saveSnapshot, saveSnapshotCompleto } from './snapshot.js';
+import { loadSnapshot, saveSnapshot, saveSnapshotCompleto, duracaoDe as duracao } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
 import { lerEnviosPorSolicitacao, assinaturaTreinadas } from './solicitacoes.js';
 import { rodarHistorico } from './historico-auto.js';
 
 export const CHAVE_ESTADO = 'monitor-coleta-estado', CHAVE_TRAVA = 'monitor-coleta-trava', CHAVE_CLIENTES = 'monitor-clientes';
 export const CHAVE_NOTIF = 'monitor-notificacoes';
-const PARALELO = 12;           // empresas lidas ao mesmo tempo (as chamadas de todas passam pelo limite geral abaixo)
-const LIMITE_GERAL = 16;       // chamadas ao Onvio ao mesmo tempo; cai pela metade sozinho se o Onvio pedir calma (429/503)
+const PARALELO = 24;           // empresas lidas ao mesmo tempo (as chamadas de todas passam pelo limite geral abaixo)
+const LIMITE_INICIAL = 6, LIMITE_MAXIMO = 32;    // chamadas ao Onvio ao mesmo tempo: começa em 6 (para medir a resposta) e se ajusta sozinho: sobe se o Onvio responde rápido, desce se demora ou recusa
 const pausa = ms => new Promise(r => setTimeout(r, ms));
 const st = () => chrome.storage.local;
 const idAba = Math.random().toString(36).slice(2);
@@ -32,7 +32,7 @@ const soltar = async () => { try { const t = (await st().get(CHAVE_TRAVA))[CHAVE
 // Dois jeitos de ler: de dentro da página (mesma origem, com o cookie) e, se não der, pelo service worker no mundo da página.
 const brutoIsolado = async url => { try { const r = await fetch(url, { credentials: 'include' }); return { status: r.status, ct: r.headers.get('content-type'), body: await r.text() }; } catch (e) { return { status: 0, ct: '', body: String(e) }; } };
 const brutoPagina = async url => { try { return (await chrome.runtime.sendMessage({ tipo: 'ler-onvio', url })) || { status: 0, ct: '', body: 'sem resposta' }; } catch (e) { return { status: 0, ct: '', body: String(e) }; } };
-const criarFetcher = () => { const base = fetcherComFallback([{ via: 'página (mesma origem)', f: brutoIsolado }, { via: 'página do Onvio (mundo da página)', f: brutoPagina }]); return { base, f: limitado(guardar(base), { max: LIMITE_GERAL }) }; };
+const criarFetcher = ({ onChamada } = {}) => { const base = fetcherComFallback([{ via: 'página (mesma origem)', f: brutoIsolado }, { via: 'página do Onvio (mundo da página)', f: brutoPagina }]); const lim = limitado(guardar(base, onChamada), { max: LIMITE_MAXIMO, inicio: LIMITE_INICIAL }); return { base, f: lim, lim }; };
 const compactos = cl => cl.map(c => ({ ids: c.ids, codigo: c.codigo, nome: c.nome, cnpj: c.cnpj, inativo: c.inativo }));
 
 /** " · faltam ~N min" depois de algumas empresas lidas (só estimativa pelo ritmo até agora). */
@@ -44,7 +44,8 @@ export function previsao(t0, feito, total, agora = Date.now()) {
 let rodando = false;
 /** Leitura completa (ao vivo). */
 async function leituraCompleta(cfg, avisa) {
-  const { base, f } = criarFetcher();
+  const rotas = {};                                                            // quantas chamadas por rota (só nomes de rota sem ids, nunca dados)
+  const { base, f, lim } = criarFetcher({ onChamada: c => { rotas[c.rota] = (rotas[c.rota] || 0) + 1; } });
   try { const perfil = perfilDaSessao(await f(API + 'security/v1/session-and-bindings')); if (perfil === 'cliente') { avisa({ estado: 'cliente', fimEm: Date.now(), msg: 'Acesso de cliente: não lê.' }); return; } } catch (e) { /* sessão é só informativa */ }
   avisa({ estado: 'rodando', feito: 0, total: 0, msg: 'Lendo a lista de empresas…' });
   const { clientes, falhaCnd } = await listarClientes(f, { pausa, onLista: l => avisa({ estado: 'rodando', feito: 0, total: 0, msg: `Lendo a lista de empresas… ${l.lidos}${l.total ? ' de ' + l.total : ''}` }) });
@@ -58,9 +59,11 @@ async function leituraCompleta(cfg, avisa) {
     onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `${p.feito} de ${p.total} empresas${previsao(t0, p.feito, p.total)}` }); },
     onParcial: async p => { await saveSnapshot(montar(p, true)); } });
   const final = montar(r, !!r.qualidade.interrompida);
+  const ms = Date.now() - t0, e = lim.estatisticas();
+  final.desempenho = { ms, empresas: r.qualidade.lidas, falhas: r.qualidade.falhas, recuperadas: r.qualidade.recuperadas || 0, chamadas: e.chamadas, chamadasPorSegundo: ms ? Math.round(e.chamadas / (ms / 1000) * 10) / 10 : 0, latenciaMediaMs: e.latenciaMediaMs, limiteFinal: e.limiteFinal, limitePico: e.limitePico, recuos: e.recuos, reducoesPorLentidao: e.reducoesPorLentidao, porRota: Object.fromEntries(Object.entries(rotas).sort((a, b) => b[1] - a[1]).slice(0, 6)) };
   await saveSnapshot(final);
   if (!final.parcial) await saveSnapshotCompleto(final);                 // só uma leitura que terminou vira o "último resultado completo"
-  avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: ativas, msg: `Leitura concluída: ${r.qualidade.lidas} empresas` });
+  avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: ativas, msg: `Leitura concluída: ${r.qualidade.lidas} empresas em ${duracao(ms)}` });
 }
 /** Releitura rápida: só as empresas prioritárias (treinadas), trocando as linhas delas no que já foi lido. */
 async function leituraRapida(cfg, snap, avisa) {

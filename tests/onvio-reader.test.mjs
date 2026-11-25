@@ -526,3 +526,27 @@ test('previsão de término só depois de algumas empresas e nunca no fim', () =
   assert.equal(previsao(t0, 1000, 1000, t0 + 60000), '');
   assert.equal(previsao(t0, 999, 1000, t0 + 60000), ' · faltam ~1 min');
 });
+
+// ---- Limite que se ajusta sozinho (0.14.1) ----
+test('limitado: com resposta rápida e estável, o limite sobe até o máximo', async () => {
+  const f = limitado(async () => { await esp(2); return 1; }, { max: 12, min: 2, inicio: 4 });
+  await Promise.all(Array.from({ length: 600 }, () => f('x')));
+  assert.ok(f.estatisticas().limitePico > 4, 'pico ' + f.estatisticas().limitePico);
+  assert.ok(f.alvo() <= 12);
+});
+test('limitado: se a resposta piora quando há mais chamadas ao mesmo tempo, o limite recua e o pico não passa do ponto bom', async () => {
+  let ativas = 0;
+  // o "Onvio" simulado fica mais lento a cada chamada simultânea acima de 6
+  const f = limitado(async () => { ativas++; const extra = Math.max(0, ativas - 6) * 12; await esp(3 + extra); ativas--; return 1; }, { max: 24, min: 2, inicio: 4 });
+  await Promise.all(Array.from({ length: 500 }, () => f('x')));
+  const e = f.estatisticas();
+  assert.ok(e.reducoesPorLentidao > 0, 'sem redução por lentidão');
+  assert.ok(e.limitePico <= 12 && f.alvo() <= 10, `pico ${e.limitePico} final ${f.alvo()}`);       // o ponto bom é ~6; nunca vai até o máximo (24)
+});
+test('limitado: estatísticas contam chamadas e recusas', async () => {
+  let falha = 0;
+  const f = limitado(async () => { if (falha++ < 2) throw new Error('HTTP 503'); return 1; }, { max: 8 });
+  await Promise.all([f('a').catch(() => {}), f('b').catch(() => {}), f('c'), f('d')]);
+  const e = f.estatisticas();
+  assert.equal(e.recuos, 2); assert.equal(e.chamadas, 2);
+});

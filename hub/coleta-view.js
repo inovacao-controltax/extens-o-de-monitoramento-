@@ -1,7 +1,7 @@
 import { criarFetcher, abaOnvio, pausa } from '../src/onvio-tab.js';
 import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, diagnosticarNotificacoes, lerNotificacoesEscritorio, textoRelatorioNotificacoes, AuthError } from '../src/onvio-reader.js';
 import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS } from '../src/config.js';
-import { loadSnapshot, saveSnapshot, clearSnapshot } from '../src/snapshot.js';
+import { loadSnapshot, saveSnapshot, clearSnapshot, loadSnapshotCompleto, duracaoDe } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
 import { abaGestta, criarLeitorGestta } from '../src/gestta-tab.js';
 import { diagnosticarGestta, textoRelatorioGestta } from '../src/gestta-reader.js';
@@ -44,6 +44,15 @@ export async function renderColeta(root, { toast, onChanged }) {
     try { const t = await abaOnvio(); $('#aba').innerHTML = t ? '<span class="badge s-ok">Aba do Onvio encontrada</span>' : '<span class="badge s-warn">Nenhuma aba do Onvio aberta</span> Abra https://onvio.com.br e faça login.'; }
     catch (e) { $('#aba').textContent = 'Não foi possível procurar a aba do Onvio.'; }
   }
+  // Quanto a última leitura completa levou e como o Onvio respondeu (para afinar a velocidade com dados reais; só números e nomes de rota).
+  const desempenhoHtml = c => {
+    const d = c && c.desempenho; if (!d) return '';
+    const rotas = Object.entries(d.porRota || {}).map(([r, n]) => `${esc(r)} ×${n}`).join(' · ');
+    return `<h3 class="sub-h">Desempenho da última leitura completa</h3><ul class="kv"><li><span>Tempo</span><b class="num">${duracaoDe(d.ms)}</b></li><li><span>Chamadas ao Onvio</span><b class="num">${d.chamadas} (${d.chamadasPorSegundo}/s)</b></li>
+      <li><span>Resposta média</span><b class="num">${d.latenciaMediaMs} ms</b></li><li><span>Limite de chamadas ao mesmo tempo</span><b class="num">pico ${d.limitePico} · final ${d.limiteFinal}</b></li>
+      <li><span>Recuos por recusa do Onvio</span><b class="num">${d.recuos}</b></li><li><span>Reduções por lentidão</span><b class="num">${d.reducoesPorLentidao}</b></li>
+      <li><span>Empresas recuperadas na 2ª passada</span><b class="num">${d.recuperadas}</b></li></ul><p class="note-txt">${rotas}</p>`;
+  };
   async function dados() {
     const s = await loadSnapshot();
     if (!s || s.fonte !== 'onvio') { $('#dados').innerHTML = '<div class="empty"><b>Nenhuma coleta ainda.</b><p>O painel mostra dados de exemplo até a primeira coleta do Onvio.</p></div>'; return; }
@@ -52,6 +61,7 @@ export async function renderColeta(root, { toast, onChanged }) {
       <ul class="kv"><li><span>Empresas lidas</span><b class="num">${q.lidas ?? 0} de ${q.empresas ?? 0}</b></li><li><span>Arquivos</span><b class="num">${q.docs ?? 0}</b></li>
       <li><span>Empresas sem CNPJ</span><b class="num">${q.semCnpj ?? 0}</b></li><li><span>Sem projeto no portal</span><b class="num">${q.semProjeto ?? 0}</b></li>
       <li><span>Falhas de leitura</span><b class="num">${q.falhas ?? 0}</b></li><li><span>Autor do arquivo não identificado</span><b class="num">${q.origemIndefinida ?? 0}</b></li></ul>
+      ${desempenhoHtml(await loadSnapshotCompleto())}
       <button class="btn btn-ghost btn-sm" id="apagar" type="button">Apagar dados coletados</button>`;
     $('#apagar').addEventListener('click', async () => {
       if (!await confirmModal({ title: 'Apagar os dados coletados?', text: 'O painel volta a mostrar os dados de exemplo até a próxima coleta.', ok: 'Apagar dados', danger: true })) return;
