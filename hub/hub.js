@@ -93,7 +93,7 @@ function recadosBase() {
   if (q.semCnpj) out.push({ id: 'cnpj', titulo: `${q.semCnpj} empresa(s) sem CNPJ`, texto: 'Sem CNPJ elas não casam com a lista de treinados do Hub.' });
   if (!cfg.trained.length) out.push({ id: 'treinados', titulo: 'Lista de treinados vazia', texto: 'Cadastre os clientes treinados em Configurações para ativar "Treinados sem envio".' });
   if (!gsnap) out.push({ id: 'gestta', titulo: 'Notificações ainda não lidas', texto: gestado && gestado.estado === 'sem_acesso' ? gestado.msg : 'Abra o Gestta numa aba, logado: a leitura dos funcionários é automática.' });
-  else if (!gsnap.campo) out.push({ id: 'gcampo', titulo: 'Campo da notificação não identificado', texto: 'O Gestta foi lido, mas a extensão não achou onde fica o aviso de tarefa nova. Veja Coleta do Onvio › Gestta.' });
+  else if (!gsnap.campo) out.push({ id: 'gcampo', titulo: 'Notificações do escritório: falta mapear', texto: 'O aviso de nova solicitação de cada funcionário fica no Onvio. Em Coleta do Onvio, use "Aprender chamadas do Onvio".' });
   return out;
 }
 const state = { lim: {}, view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), dispensados: new Set() };
@@ -140,7 +140,7 @@ function tableHtml(k) {
   if (lendoSemDados()) return '<div class="empty"><b>Lendo o Onvio…</b><p>Os resultados aparecem aqui assim que as primeiras empresas forem lidas.</p></div>';
   if (!rows.length && (real() || gsnap) && k === 'notificacoes') {
     if (!gsnap) return `<div class="empty"><b>Ainda não lido do Gestta.</b><p>${gestado && gestado.estado === 'sem_acesso' ? esc(gestado.msg) : 'Abra o Gestta numa aba (logado): a leitura é automática.'}</p></div>`;
-    if (!gsnap.campo) return `<div class="empty"><b>Campo da notificação não identificado.</b><p>O Gestta foi lido (${gsnap.users.length} funcionários), mas o cadastro não tem um campo de "aviso de tarefa nova".${gsnap.candidatos && gsnap.candidatos.length ? ` Campos parecidos que NÃO parecem ser disso: <span class="num">${esc(gsnap.candidatos.join(', '))}</span>.` : ''} Em Coleta do Onvio › Gestta, use "Aprender chamadas" para a extensão achar onde o Gestta guarda esse aviso.</p></div>`;
+    if (!gsnap.campo) return '<div class="empty"><b>Leitura das notificações do escritório ainda não mapeada.</b><p>Esse liga/desliga fica no Onvio (Configurações › Notificações dos usuários do escritório). Em Coleta do Onvio, use "Aprender chamadas do Onvio" para a extensão aprender a ler essa tela.</p></div>';
     if (gsnap.qualidade && gsnap.qualidade.todosZero) return '<div class="empty"><b>Nenhum funcionário aparece com tarefas ativas.</b><p>Seu usuário no Gestta pode não ter departamento vinculado, e o Gestta esconde as tarefas na busca. Entre com um usuário gestor ou administrador, ou peça para vincular um departamento ao seu.</p></div>';
   }
   if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
