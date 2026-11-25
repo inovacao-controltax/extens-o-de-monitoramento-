@@ -127,7 +127,7 @@ export async function lerFuncionarios(leitor, { campo = '', pausa, paralelo = 4,
   catch (e) { if (e instanceof AuthError && /403/.test(e.message)) throw new AuthError('Seu acesso ao Gestta não inclui o cadastro de funcionários (precisa ser gestor ou administrador).'); throw e; }
   const ativos = funcionarios.filter(f => f.ativo);
   let feito = 0, campoUsado = campo, achados = [];
-  const q = { funcionarios: ativos.length, detalhesLidos: 0, falhas: 0, semCampo: 0, semContagem: 0 };
+  const q = { funcionarios: ativos.length, detalhesLidos: 0, falhas: 0, semCampo: 0, semContagem: 0, todosZero: false };
   const users = await emParalelo(ativos.map(f => async () => {
     const u = { id: f.id, nome: f.nome, email: f.email, setor: f.setores.join(', '), role: f.role, tarefasAtivas: null, notificaTarefa: null };
     try {
@@ -145,6 +145,8 @@ export async function lerFuncionarios(leitor, { campo = '', pausa, paralelo = 4,
     if (pausa) await pausa(60);
     return u;
   }), paralelo);
+  // Todos com 0 tarefas e vários funcionários: quase certo que o Gestta está escondendo as tarefas (usuário sem departamento).
+  q.todosZero = users.length >= 5 && users.every(u => u.tarefasAtivas === 0);
   return { users, campo: campoUsado, candidatos: achados, qualidade: q };
 }
 
@@ -175,9 +177,13 @@ export async function diagnosticarGestta(leitor, { chamadas = [], campo = '' } =
     else if (!rep.notificacao.escolhido) rep.avisos.push('Há campos que parecem de notificação, mas nenhum é claramente "receber aviso de tarefa nova". Escolha o campo em Coleta › Gestta (campo da notificação).');
   } catch (e) { passo('Cadastro do funcionário', false, e.message); }
   try {
-    const n = await contarTarefasAtivas(leitor, amostra.id, janelaAtiva());
-    passo('Contagem de tarefas por funcionário', n !== null, n === null ? 'a busca não trouxe o total' : 'ok');
-    if (n === null) rep.avisos.push('A busca de tarefas não devolveu o total; o monitor não consegue saber quem tem tarefas ativas.');
+    const alvo = funcs.filter(f => f.ativo).slice(0, 8), cont = [];
+    for (const f of alvo) cont.push(await contarTarefasAtivas(leitor, f.id, janelaAtiva()));
+    const sem = cont.filter(n => n === null).length, comTarefa = cont.filter(n => n > 0).length;
+    rep.contagem = { amostra: cont.length, comTarefas: comTarefa, zero: cont.filter(n => n === 0).length, semTotal: sem };
+    passo('Contagem de tarefas por funcionário', sem === 0, sem ? 'a busca não trouxe o total' : `${comTarefa} de ${cont.length} funcionários da amostra com tarefas ativas`);
+    if (sem) rep.avisos.push('A busca de tarefas não devolveu o total; o monitor não consegue saber quem tem tarefas ativas.');
+    else if (cont.length >= 5 && !comTarefa) rep.avisos.push('Nenhum funcionário da amostra aparece com tarefas ativas. Se o seu usuário não tem departamento vinculado, o Gestta pode estar escondendo as tarefas na busca: entre com um gestor/administrador ou vincule um departamento ao seu usuário.');
   } catch (e) { passo('Contagem de tarefas por funcionário', false, e.message); }
   return fim(rep, chamadas);
 }
@@ -189,6 +195,7 @@ export function textoRelatorioGestta(rep) {
   const L = ['RELATÓRIO DE LEITURA DO GESTTA (sem nomes de pessoas ou empresas, sem token)', ''];
   for (const p of rep.passos) L.push(`${p.ok ? '[ok]' : '[FALHOU]'} ${p.nome}: ${p.detalhe}`);
   if (rep.funcionarios) L.push('', `Funcionários: ${JSON.stringify(rep.funcionarios)}`);
+  if (rep.contagem) L.push(`Contagem de tarefas (amostra): ${JSON.stringify(rep.contagem)}`);
   if (rep.eu) L.push(`Campos do usuário logado: ${rep.eu.campos.join(', ')}`);
   if (rep.detalhe) L.push(`Campos do cadastro do funcionário: ${rep.detalhe.campos.join(', ')}`);
   if (rep.notificacao) L.push(`Campos de notificação encontrados: ${rep.notificacao.candidatos.join(' | ') || '(nenhum)'}`, `Campo escolhido: ${rep.notificacao.escolhido || '(nenhum)'}`);

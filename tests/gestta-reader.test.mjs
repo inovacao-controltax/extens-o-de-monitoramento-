@@ -113,3 +113,14 @@ test('diagnóstico: campos e candidatos, sem valores pessoais; avisa quando não
   const rep4 = await diagnosticarGestta(criarLeitor(fakeGestta({ lista403: true })));
   assert.equal(rep4.passos.at(-1).ok, false); assert.match(rep4.passos.at(-1).detalhe, /gestor ou administrador/);
 });
+
+test('Gestta escondendo as tarefas (usuário sem departamento): todas as contagens 0 viram aviso, na leitura e no diagnóstico', async () => {
+  const api = fakeGestta({ n: 12, tarefas: () => 0 });
+  const r = await lerFuncionarios(criarLeitor(api));
+  assert.equal(r.qualidade.todosZero, true);
+  const rep = await diagnosticarGestta(criarLeitor(fakeGestta({ n: 12, tarefas: () => 0 })));
+  assert.deepEqual(rep.contagem, { amostra: 8, comTarefas: 0, zero: 8, semTotal: 0 });
+  assert.ok(rep.avisos.some(a => /departamento vinculado/.test(a)));
+  const bom = await lerFuncionarios(criarLeitor(fakeGestta({ n: 12, tarefas: i => 1 + (i % 3) })));
+  assert.equal(bom.qualidade.todosZero, false);
+});

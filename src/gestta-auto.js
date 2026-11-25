@@ -1,5 +1,5 @@
 // Leitura automática dos funcionários do Gestta (notificações), em segundo plano, a partir da própria página do Gestta.
-// A cada 60 min (ou quando não há dados), se a pessoa tem acesso de gestor/administrador. SÓ LEITURA, lista fechada.
+// A cada 60 min (ou quando não há dados). Não pré-julga o papel da pessoa: tenta ler e, se o Gestta recusar (403), diz que falta acesso. SÓ LEITURA, lista fechada.
 // O token nunca sai da página; só os dados limpos são guardados (nome, setor, tarefas ativas e o sim/não da notificação).
 import { criarLeitor, lerFuncionarios, GESTTA_API } from './gestta-reader.js';
 import { buscarGestta } from './gestta-pagina.js';
@@ -31,13 +31,14 @@ export async function rodarGestta() {
     rodando = true;
     if (!(await pegarTrava())) { rodando = false; return; }
     const leitor = criarLeitor((m, u, c) => buscarGestta(m, u, c));
-    const me = await leitor('GET', `${GESTTA_API}/core/company/user/me`);
-    if (!/ROLE_(ADMIN|MANAGER)|root/i.test(String(me.role || '')) && !me.root) { gravarEstado({ estado: 'sem_acesso', fimEm: Date.now(), msg: 'Acesso de analista: o cadastro de funcionários exige gestor ou administrador.' }); return; }
     gravarEstado({ estado: 'rodando', feito: 0, total: 0, msg: 'Lendo os funcionários do Gestta…' });
     const r = await lerFuncionarios(leitor, { campo: cfg.gesttaCampo || '', pausa, onProgresso: p => gravarEstado({ estado: 'rodando', feito: p.feito, total: p.total, msg: `Gestta: ${p.feito} de ${p.total} funcionários` }) });
     await st().set({ [CHAVE_GESTTA]: { coletadoEm: Date.now(), users: r.users, campo: r.campo, campoConfigurado: cfg.gesttaCampo || '', candidatos: r.candidatos, qualidade: r.qualidade } });
     gravarEstado({ estado: 'ok', fimEm: Date.now(), feito: r.users.length, total: r.users.length, msg: `Gestta lido: ${r.users.length} funcionários` });
-  } catch (e) { gravarEstado({ estado: e instanceof AuthError ? 'sem_sessao' : 'erro', fimEm: Date.now(), msg: String(e && e.message || e).slice(0, 200) }); }
+  } catch (e) {
+    const semAcesso = e instanceof AuthError && /não inclui/.test(e.message);          // o Gestta recusou o cadastro de funcionários (403)
+    gravarEstado({ estado: semAcesso ? 'sem_acesso' : e instanceof AuthError ? 'sem_sessao' : 'erro', fimEm: Date.now(), msg: String(e && e.message || e).slice(0, 200) });
+  }
   finally { rodando = false; await soltar(); }
 }
 export function iniciar({ atrasoMs = 3000, cadaMs = 60 * 1000 } = {}) { setTimeout(rodarGestta, atrasoMs); setInterval(rodarGestta, cadaMs); }

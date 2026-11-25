@@ -38,8 +38,11 @@ Regras de segurança: só leitura (GET), lista fechada de rotas (`src/onvio-read
 - Se a lista de CND traz todas as empresas e o CNPJ.
 
 ## Gestta · notificações desativadas (Fase 5)
-Com uma aba do **Gestta** aberta e logada como **gestor ou administrador**, a extensão lê os funcionários sozinha (na abertura e a cada 60 min) e o monitor **Notificações** lista quem tem tarefas ativas mas está com o aviso de tarefa nova desligado.
-- **Só leitura** e lista fechada: perfil, lista de funcionários, cadastro de um funcionário e a busca de tarefas (só o total, para contar). Analista não tem acesso ao cadastro; a extensão avisa em vez de errar.
+Com uma aba do **Gestta** aberta e logada, a extensão lê os funcionários sozinha (na abertura e a cada 60 min) e o monitor **Notificações** lista quem tem tarefas ativas mas está com o aviso de tarefa nova desligado.
+- **Só leitura** e lista fechada: perfil, lista de funcionários, cadastro de um funcionário e a busca de tarefas (só o total, para contar). 
 - **O token do Gestta nunca sai da página** (a leitura roda dentro dela). Do cadastro do funcionário, permissões, tentativas e último login **nunca** são lidos nem guardados; ficam só nome, e-mail interno, setor, quantas tarefas ativas e o sim/não da notificação.
 - **Campo da notificação:** o mapeamento do Control Onvio não diz onde o Gestta guarda esse aviso. A extensão procura sozinha campos verdadeiro/falso de notificação no cadastro e só decide se houver um candidato claro; senão avisa e nunca chuta. Em **Coleta do Onvio › Gestta**: **Testar leitura do Gestta** (relatório só com nomes de campos), campo manual e **Aprender chamadas (2 h)**, que registra, enquanto você navega no Gestta, só o método, a rota sem ids e os **nomes** dos campos das chamadas da própria tela (nunca valores, cabeçalhos ou token).
 - Para achar o campo: ligue "Aprender chamadas", abra no Gestta Configure › Funcionários › um funcionário › notificações (sem salvar nada) e use "Ver chamadas observadas".
+- A bolinha da extensão também aparece no Gestta (canto inferior direito, arrastável) e abre o painel por cima dele. A leitura do Onvio só roda em página do Onvio.
+- **Usuário sem departamento:** se o seu usuário no Gestta não tem departamento vinculado, a busca de tarefas pode vir zerada para todos. O diagnóstico e o painel avisam ("Nenhum funcionário aparece com tarefas ativas"); entre com um gestor/administrador ou peça para vincular um departamento.
+- Se o Gestta recusar o cadastro de funcionários (403), o painel diz que falta acesso; a extensão não pré-julga o papel da pessoa.
