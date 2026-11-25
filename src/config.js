@@ -13,20 +13,23 @@ export const SETORES = ['Pessoal', 'Fiscal', 'Contábil', 'Financeiro'];
 const KEY = 'monitor-config';
 
 // ---------- CNPJ ----------
-export const onlyDigits = s => String(s ?? '').replace(/\D/g, '');
+// Aceita o CNPJ numérico e o alfanumérico (12 primeiras posições com letras A-Z, 2 dígitos verificadores).
+export const normalizeCnpj = s => String(s ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+export const onlyDigits = normalizeCnpj; // nome antigo, mantido por compatibilidade
 export function isValidCnpj(v) {
-  const d = onlyDigits(v);
-  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+  const d = normalizeCnpj(v);
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(d) || /^(.)\1+$/.test(d)) return false;
+  const val = c => c.charCodeAt(0) - 48; // 0-9 -> 0-9, A -> 17 ...
   const calc = len => {
     let sum = 0, pos = len - 7;
-    for (let i = len; i >= 1; i--) { sum += d[len - i] * pos--; if (pos < 2) pos = 9; }
+    for (let i = 0; i < len; i++) { sum += val(d[i]) * pos--; if (pos < 2) pos = 9; }
     const r = sum % 11; return r < 2 ? 0 : 11 - r;
   };
   return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
 }
 export function formatCnpj(v) {
-  const d = onlyDigits(v);
-  return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : String(v ?? '');
+  const d = normalizeCnpj(v);
+  return d.length === 14 ? d.replace(/^([0-9A-Z]{2})([0-9A-Z]{3})([0-9A-Z]{3})([0-9A-Z]{4})(\d{2})$/, '$1.$2.$3/$4-$5') : String(v ?? '');
 }
 
 // ---------- Validação ----------
@@ -64,8 +67,8 @@ export function parseTrained(text) {
     if (i === 0 && /^empresa$/i.test(c[0])) return; // cabeçalho
     const n = i + 1;
     if (!c[0]) return errors.push({ linha: n, msg: 'Falta o nome da empresa.' });
-    const d = onlyDigits(c[1]);
-    if (d.length !== 14) return errors.push({ linha: n, msg: `CNPJ com ${d.length} dígitos. Confira o número e tente de novo.` });
+    const d = normalizeCnpj(c[1]);
+    if (d.length !== 14) return errors.push({ linha: n, msg: `CNPJ com ${d.length} caracteres. Confira o número e tente de novo.` });
     if (!isValidCnpj(d)) return errors.push({ linha: n, msg: 'CNPJ inválido (dígitos verificadores não conferem).' });
     const data = parseDate(c[2]);
     if (data === null) return errors.push({ linha: n, msg: 'Data fora do formato. Use dd/mm/aaaa.' });

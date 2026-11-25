@@ -28,7 +28,7 @@ test('importação de treinados: linhas boas e ruins', () => {
   assert.equal(rows.length, 1);
   assert.deepEqual(rows[0], { empresa: 'Alfa Ltda', cnpj: '11222333000181', treinadoEm: '2026-09-01', demanda: ['Pessoal', 'Fiscal'] });
   assert.deepEqual(errors.map(e => e.linha), [3, 4, 5]);
-  assert.match(errors[0].msg, /4 dígitos/);
+  assert.match(errors[0].msg, /4 caracteres/);
 });
 test('mesclar por CNPJ substitui e ordena', () => {
   const a = [{ empresa: 'Zeta', cnpj: '1' }, { empresa: 'Alfa', cnpj: '2' }];
@@ -44,4 +44,9 @@ test('salvar e carregar (memória), e recusa config inválida', async () => {
 test('mensagem de regex inválido sem prefixo técnico', () => {
   const e = validateConfig({ ...DEFAULT_CONFIG, filePattern: '(' });
   assert.match(e.filePattern, /^Expressão inválida: Unterminated group\./);
+});
+test('CNPJ alfanumérico (padrão novo) valida e formata', () => {
+  assert.equal(isValidCnpj('12.ABC.345/01DE-35'), true);
+  assert.equal(isValidCnpj('12.ABC.345/01DE-36'), false);
+  assert.equal(formatCnpj('12ABC34501DE35'), '12.ABC.345/01DE-35');
 });
