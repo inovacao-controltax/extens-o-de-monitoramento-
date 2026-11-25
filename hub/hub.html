@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hub de Monitoramento</title>
+  <link rel="stylesheet" href="hub.css">
+</head>
+<body>
+  <aside>
+    <div class="brand"><span class="dot"></span>Hub do Portal</div>
+    <nav id="nav"></nav>
+    <p class="demo">Dados fictícios — visual em construção (Fase 1)</p>
+  </aside>
+  <main>
+    <header>
+      <h1 id="title"></h1>
+      <div class="tools">
+        <input id="search" type="search" placeholder="Buscar empresa ou CNPJ…" aria-label="Buscar">
+        <button id="refresh" class="btn" disabled title="Disponível na Fase 4">Atualizar coleta</button>
+      </div>
+    </header>
+    <section id="view"></section>
+  </main>
+  <script type="module" src="hub.js"></script>
+</body>
+</html>
