@@ -23,13 +23,17 @@ function fakeSolic({ falha = {} } = {}) {
   const chamadas = [];
   const tickets = {
     'service-requesting/v1/tickets/generic': [
-      { id: h(1), lastUpdated: '2026-11-24T10:00:00Z', clientExpanded: { code: '10' } },
-      { id: h(2), lastUpdated: '2026-11-22T10:00:00Z', clientExpanded: { code: '99' } },   // empresa não acompanhada
-      { id: h(3), lastUpdated: '2026-09-01T10:00:00Z', clientExpanded: { code: '10' } },   // fora da janela
+      { id: h(1), created: '2026-11-05T10:00:00Z', lastUpdated: '2026-11-24T10:00:00Z', clientExpanded: { code: '10' } },   // aberta há pouco pelo cliente
+      { id: h(2), created: '2026-09-01T10:00:00Z', lastUpdated: '2026-11-22T10:00:00Z', clientExpanded: { code: '99' } },   // antiga, movimentada há pouco (empresa fora da lista)
+      { id: h(3), created: '2026-09-01T10:00:00Z', lastUpdated: '2026-09-02T10:00:00Z', clientExpanded: { code: '10' } },   // antiga
     ],
-    'br-payroll-sr/v1/payroll-entries': [{ id: h(4), lastUpdated: '2026-11-20T10:00:00Z', clientExpanded: { code: '20' } }],
+    'br-payroll-sr/v1/payroll-entries': [{ id: h(4), created: '2026-09-10T10:00:00Z', lastUpdated: '2026-11-20T10:00:00Z', clientExpanded: { code: '20' } }],
   };
-  const topicos = { [h(1)]: [{ created: '2026-11-05T10:00:00Z', status: 1 }, { created: '2026-11-23T10:00:00Z', status: 3 }], [h(4)]: [{ created: '2026-11-19T10:00:00Z', status: 1 }] };
+  const topicos = {
+    [h(1)]: [{ created: '2026-11-05T10:00:00Z', status: 1 }, { created: '2026-11-23T10:00:00Z', status: 3 }],     // cliente respondeu em 23/11
+    [h(2)]: [{ created: '2026-09-01T10:00:00Z', status: 1 }, { created: '2026-11-22T10:00:00Z', status: 2 }],     // só o escritório mexeu depois
+    [h(4)]: [{ created: '2026-09-10T10:00:00Z', status: 1 }, { created: '2026-11-19T10:00:00Z', status: 11 }],   // rubricas: 11 é do cliente
+  };
   const f = async url => {
     chamadas.push(url);
     const u = new URL(url), p = u.pathname.slice(5);
@@ -41,18 +45,31 @@ function fakeSolic({ falha = {} } = {}) {
   };
   return { f, chamadas };
 }
-test('lê as listas, só as empresas acompanhadas e dentro da janela; devolve código -> último dia do cliente', async () => {
+const JANELA = { desde: '2026-01-01', recorte: '2026-10-26' };
+test('abertura recente já mostra uso (sem ler trâmites); solicitação antiga movimentada só vale se o CLIENTE respondeu', async () => {
   const { f, chamadas } = fakeSolic();
-  const r = await lerEnviosPorSolicitacao(f, ['10', '20'], { desde: '2026-10-26' });
-  assert.deepEqual(r.porCodigo, { 10: '2026-11-23', 20: '2026-11-19' });
-  assert.equal(chamadas.filter(u => /\/topics/.test(u)).length, 2);          // só trâmites das solicitações acompanhadas e recentes
+  const r = await lerEnviosPorSolicitacao(f, ['10', '20'], JANELA);
+  assert.deepEqual(r.porCodigo, { 10: '2026-11-05', 20: '2026-11-19' });        // 10: pela abertura; 20: a abertura é antiga, mas o cliente respondeu em 19/11
+  assert.equal(r.tramites, 1);                                                  // só a da empresa 20 precisou dos trâmites
   assert.ok(chamadas.every(u => /^https:\/\/onvio\.com\.br\/api\//.test(u)));
   assert.equal(chamadas.filter(u => !/\/topics/.test(u)).length, LISTAS.length);
 });
-test('lista sem acesso (403/404) não derruba as outras; sessão caída interrompe', async () => {
+test('empresa que precisa de data exata (treinada) também lê as respostas recentes', async () => {
+  const { f } = fakeSolic();
+  const r = await lerEnviosPorSolicitacao(f, ['10'], { ...JANELA, precisos: ['10'] });
+  assert.deepEqual(r.porCodigo, { 10: '2026-11-23' });
+});
+test('todas as empresas: a que só o escritório mexeu mostra a abertura antiga, nunca uma data do escritório', async () => {
+  const { f } = fakeSolic();
+  const r = await lerEnviosPorSolicitacao(f, null, JANELA);
+  assert.deepEqual(r.porCodigo, { 10: '2026-11-05', 20: '2026-11-19', 99: '2026-09-01' });
+});
+test('lista sem acesso (403/404) não derruba as outras e é avisada; sessão caída interrompe', async () => {
   const a = fakeSolic({ falha: { 'service-requesting/v1/tickets/generic': 403 } });
-  assert.deepEqual((await lerEnviosPorSolicitacao(a.f, ['20'], { desde: '2026-10-26' })).porCodigo, { 20: '2026-11-19' });
-  await assert.rejects(lerEnviosPorSolicitacao(async () => { throw new AuthError('sessão'); }, ['10'], { desde: '2026-10-26' }), AuthError);
+  const r = await lerEnviosPorSolicitacao(a.f, null, JANELA);
+  assert.deepEqual(r.porCodigo, { 20: '2026-11-19' });
+  assert.deepEqual(r.semAcesso, ['geral']);
+  await assert.rejects(lerEnviosPorSolicitacao(async () => { throw new AuthError('sessão'); }, ['10'], JANELA), AuthError);
   assert.deepEqual((await lerEnviosPorSolicitacao(async () => ({ items: [] }), [], {})).porCodigo, {});
 });
 
@@ -82,4 +99,17 @@ test('statusEnvio: todas as treinadas, com dias e origem; nunca some empresa', (
   const r = statusEnvio([{ cnpj: '1', origem: 'cliente', data: '2026-11-10' }, { cnpj: '1', origem: 'escritorio', data: '2026-11-24' }], trained, agora, { 2: '2026-11-20' });
   assert.deepEqual(r.map(x => [x.cnpj, x.dias, x.fonte]), [['1', 15, 'arquivo'], ['2', 5, 'solicitação']]);     // arquivo do escritório não conta
   assert.equal(statusEnvio([], trained, agora, null).every(x => x.dias === null && x.fonte === ''), true);
+});
+
+import { raizDoCnpj } from '../src/rules.js';
+test('matriz e filiais são uma empresa só: o Hub e o Onvio podem cadastrar estabelecimentos diferentes do mesmo grupo (caso Atacapet)', () => {
+  assert.equal(raizDoCnpj('25.096.492/0013-25'), raizDoCnpj('25096492000191'));
+  assert.notEqual(raizDoCnpj('25096492000191'), raizDoCnpj('11222333000181'));
+  const treinada = [{ empresa: 'Atacapet', cnpj: '25096492001325', treinadoEm: '2026-09-01', demanda: ['Fiscal'] }];        // cadastro do Hub: filial 0013
+  // o Onvio mostra a matriz (0001), com solicitação recente e arquivo antigo
+  const r = statusEnvio([{ cnpj: '25096492000191', origem: 'cliente', data: '2023-07-11' }], treinada, agora, { '25096492000191': '2026-11-20' });
+  assert.deepEqual([r[0].dias, r[0].fonte], [5, 'solicitação']);
+  assert.deepEqual(checkSemEnvio([], treinada, DEFAULT_CONFIG, agora, { '25096492000144': '2026-11-20' }), []);      // outra filial (0012-44) também vale
+  assert.deepEqual(raizDoCnpj('12.ABC.345/01DE-35'), '12ABC345');
+  assert.equal(raizDoCnpj(''), '');
 });

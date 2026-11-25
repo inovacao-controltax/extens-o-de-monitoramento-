@@ -287,10 +287,11 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
  */
 export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer, paralelo = 1, prioridade, onParcial, cadaParcialMs = 2500, rapido = false } = {}) {
   let alvo = clientes.filter(c => !c.inativo && c.ids.length);
-  if (prioridade && prioridade.size) alvo = [...alvo.filter(c => prioridade.has(c.cnpj)), ...alvo.filter(c => !prioridade.has(c.cnpj))];
+  const ehPrior = c => !!prioridade && (prioridade.has(c.cnpj) || prioridade.has(String(c.cnpj || '').slice(0, 8)));   // pelo CNPJ ou pela raiz (matriz e filiais)
+  if (prioridade && prioridade.size) alvo = [...alvo.filter(ehPrior), ...alvo.filter(c => !ehPrior(c))];
   alvo = alvo.slice(0, limite > 0 ? limite : undefined);
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
-  let i = 0, fatal = null, ultimo = 0; const falhadas = [];                       // o 1º parcial sai logo depois da 1ª empresa
+  let i = 0, fatal = null, ultimo = 0; const falhadas = [], empresas = [];   // empresas = as que foram lidas (mesmo sem nenhum arquivo): para listar quem nunca enviou                       // o 1º parcial sai logo depois da 1ª empresa
   const resumo = (lista) => { const x = { ...q }; x.docs = lista.filter(d => d.arquivo).length; x.origemIndefinida = lista.filter(d => d.arquivo && d.origem === 'indefinida').length; return x; };
   async function trabalhador() {
     while (!fatal) {
@@ -298,7 +299,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       const c = alvo[i++]; if (!c) return;
       try {
         const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido });
-        docs.push(...r.docs); q.lidas++;
+        docs.push(...r.docs); q.lidas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj });
         if (!r.projetos) q.semProjeto++;
         if (r.truncado) q.truncadas++;
       } catch (e) { if (e instanceof AuthError) { fatal = e; return; } q.falhas++; falhadas.push(c); }
@@ -308,7 +309,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       if (onParcial && Date.now() - ultimo >= (cadaParcialMs === 0 ? 0 : Math.max(cadaParcialMs, Math.min(15000, docs.length * 0.15)))) {
         ultimo = Date.now();
         const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia);
-        await onParcial({ docs: copia, qualidade: { ...resumo(copia), autores: aut } });
+        await onParcial({ docs: copia, empresas: empresas.slice(), qualidade: { ...resumo(copia), autores: aut } });
       }
       if (pausa && !rapido) await pausa(paralelo > 1 ? 60 : 150);
     }
@@ -322,7 +323,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       for (let c; (c = restantes.shift()) && !fatal;) {
         try {
           const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido });
-          docs.push(...r.docs); q.lidas++; q.falhas--; q.recuperadas++;
+          docs.push(...r.docs); q.lidas++; q.falhas--; q.recuperadas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj });
           if (!r.projetos) q.semProjeto++;
           if (r.truncado) q.truncadas++;
         } catch (e) { if (e instanceof AuthError) { fatal = e; return; } }
@@ -333,7 +334,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   if (fatal) throw fatal;
   const aut = classificarAutores(docs);
   const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut });
-  return { docs, qualidade: q };
+  return { docs, empresas, qualidade: q };
 }
 
 // ---------- Diagnóstico (só nomes de campos, nunca valores) ----------

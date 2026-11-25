@@ -34,41 +34,57 @@ export function ultimaAtividadeDoCliente(topicos, cliGrava) {
 }
 
 /**
- * alvos: códigos de empresa (clientExpanded.code) acompanhadas. Devolve { porCodigo: {codigo: 'AAAA-MM-DD'}, lidas, trâmites, limitada }.
- * `desde` = AAAA-MM-DD: solicitações paradas antes disso não entram (nada novo dentro da janela).
+ * Última atividade do cliente nas Solicitações, de TODAS as empresas (ou só das de `alvos`, um conjunto de códigos; null = todas).
+ * Duas camadas, para ser confiável e barata:
+ *  1) as 10 listas, em ordem de última atualização, até sair da janela `desde` (só as listas, ~50 chamadas no total): a data de ABERTURA
+ *     da solicitação (`created`) já mostra que o cliente usou o portal naquele dia;
+ *  2) só para as empresas que NÃO abriram nada recentemente (ou que precisam de data exata) (antes de `recorte`) mas têm solicitação antiga movimentada depois dela: os trâmites
+ *     dessas solicitações (até 2 por empresa), para ver se foi o CLIENTE que respondeu (lado do trâmite pela situação, como o Control Onvio).
+ * Devolve { porCodigo: {codigo: 'AAAA-MM-DD'}, lidas, tramites, limitada, semAcesso: [listas] }.
  */
-export async function lerEnviosPorSolicitacao(fetcher, alvos, { desde, pausa, maxPaginas = 8, maxTramites = 200, listas = LISTAS } = {}) {
-  const codigos = new Set([...alvos].map(String));
-  const porCodigo = {}; let lidas = 0, tramites = 0, limitada = false;
-  if (!codigos.size) return { porCodigo, lidas, tramites, limitada };
+export async function lerEnviosPorSolicitacao(fetcher, alvos, { desde, recorte, precisos, pausa, maxPaginas = 80, maxTramites = 600, listas = LISTAS } = {}) {
+  const exatas = new Set([...(precisos || [])].map(String));        // empresas em que a data tem de ser exata (treinadas): também lê as respostas de solicitações recentes
+  const codigos = alvos ? new Set([...alvos].map(String)) : null;
+  const por = new Map(); let lidas = 0, tramites = 0, limitada = false; const semAcesso = [];
+  if (codigos && !codigos.size) return { porCodigo: {}, lidas, tramites, limitada, semAcesso };
   for (const L of listas) {
-    const achadas = [];
     for (let pag = 1; pag <= maxPaginas; pag++) {
       let d;
       try { d = await fetcher(`${API}${L.lista}?itemsPerPage=200&pageIndex=${pag}&orderBy=${encodeURIComponent('lastUpdated desc')}&expand=clientExpanded`); }
-      catch (e) { if (e instanceof AuthError) throw e; if ([401, 403, 404].includes(HTTP(e))) break; throw e; }   // lista sem acesso nesta conta: segue as outras
+      catch (e) { if (e instanceof AuthError) throw e; if ([401, 403, 404].includes(HTTP(e))) { if (pag === 1) semAcesso.push(L.chave); break; } throw e; }   // lista sem acesso nesta conta: segue as outras
       const itens = listaDe(d); lidas += itens.length;
       for (const it of itens) {
-        if (dia(it.lastUpdated) && desde && dia(it.lastUpdated) < desde) continue;
         const cod = it.clientExpanded && it.clientExpanded.code != null ? String(it.clientExpanded.code) : '';
-        if (codigos.has(cod) && typeof it.id === 'string') achadas.push({ cod, id: it.id });
+        if (!cod || (codigos && !codigos.has(cod))) continue;
+        const cr = dia(it.created), lu = dia(it.lastUpdated);
+        const g = por.get(cod) || por.set(cod, { criada: '', cand: [] }).get(cod);
+        if (cr && (!desde || cr >= desde) && cr > g.criada) g.criada = cr;
+        if (recorte && lu && lu >= recorte && (!cr || cr < recorte || exatas.has(cod)) && typeof it.id === 'string') g.cand.push({ id: it.id, lu, L });
       }
       const ult = itens.length ? dia(itens[itens.length - 1].lastUpdated) : '';
       if (itens.length < 200 || !ult || (desde && ult < desde)) break;
-      if (pausa) await pausa(100);
+      if (pausa) await pausa(60);
     }
-    for (const a of achadas) {
+  }
+  const porCodigo = {};
+  for (const [cod, g] of por) if (g.criada) porCodigo[cod] = g.criada;
+  // 2ª camada: só quem ainda não aparece em uso pela abertura e tem solicitação antiga movimentada há pouco
+  const pendentes = [...por.entries()].filter(([cod, g]) => g.cand.length && (exatas.has(cod) || !g.criada || !recorte || g.criada < recorte))
+    .sort((x, y) => String(y[1].cand[0].lu).localeCompare(String(x[1].cand[0].lu)));
+  for (const [cod, g] of pendentes) {
+    for (const c of g.cand.sort((x, y) => String(y.lu).localeCompare(String(x.lu))).slice(0, 2)) {
       if (tramites >= maxTramites) { limitada = true; break; }
       tramites++;
       try {
-        const d = await fetcher(`${API}${L.tramites}/${a.id}/topics?expand=all&itemsPerPage=1000&orderBy=${encodeURIComponent('created asc')}&pageIndex=0`);
-        const u = ultimaAtividadeDoCliente(d, L.cliGrava);
-        if (u && (!desde || u >= desde) && u > (porCodigo[a.cod] || '')) porCodigo[a.cod] = u;
+        const d = await fetcher(`${API}${c.L.tramites}/${c.id}/topics?expand=all&itemsPerPage=1000&orderBy=${encodeURIComponent('created asc')}&pageIndex=0`);
+        const u = ultimaAtividadeDoCliente(d, c.L.cliGrava);
+        if (u && (!desde || u >= desde) && u > (porCodigo[cod] || '')) porCodigo[cod] = u;
       } catch (e) { if (e instanceof AuthError) throw e; /* um trâmite que não abriu não derruba a leitura */ }
-      if (pausa) await pausa(80);
+      if (pausa) await pausa(40);
     }
+    if (limitada) break;
   }
-  return { porCodigo, lidas, tramites, limitada };
+  return { porCodigo, lidas, tramites, limitada, semAcesso };
 }
 
 /** Identifica a lista de empresas acompanhadas (para saber se a leitura das Solicitações ainda vale). */

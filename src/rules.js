@@ -2,7 +2,7 @@
 // Formato dos dados brutos (o mesmo que as coletas reais das Fases 4 e 5 vão produzir):
 //   docs:  [{ empresa, cnpj, pasta: 'Fiscal/2026/11', arquivo, data: 'AAAA-MM-DD', origem: 'cliente'|'escritorio' }]
 //   users: [{ nome, setor, email, notificaTarefa: boolean, tarefasAtivas: number }]
-import { SETORES, compilePattern } from './config.js';
+import { SETORES, compilePattern, normalizeCnpj } from './config.js';
 
 const DAY = 864e5;
 const norm = s => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
@@ -45,10 +45,13 @@ export function checkPastas(docs, cfg) {
  * (carência: quem acabou de ser treinado ainda não está atrasado). Sem nenhuma das duas datas, entra como "nunca enviou".
  * dias === null significa "nunca enviou nada".
  */
+/** Raiz do CNPJ (8 primeiros dígitos): matriz e filiais são uma empresa só (regra do Hub). O Hub e o Onvio podem cadastrar estabelecimentos diferentes do mesmo grupo. */
+export const raizDoCnpj = c => { const n = normalizeCnpj(c); return n.length >= 8 ? n.slice(0, 8) : n; };
+
 /** Situação de TODAS as treinadas: dias desde a última atividade do cliente (arquivo ou Solicitação), de onde veio, ou null se não há registro. */
 export function statusEnvio(docs, trained, now = new Date(), solic = {}) {
   const ultimo = new Map(), fonte = new Map();
-  const marca = (cnpj, t, f) => { if (!ultimo.has(cnpj) || t > ultimo.get(cnpj)) { ultimo.set(cnpj, t); fonte.set(cnpj, f); } };
+  const marca = (cnpj, t, f) => { const k = raizDoCnpj(cnpj); if (!ultimo.has(k) || t > ultimo.get(k)) { ultimo.set(k, t); fonte.set(k, f); } };
   for (const d of docs) {
     if (d.origem !== 'cliente') continue;
     const t = utcDay(d.data); if (t === null) continue;
@@ -57,9 +60,9 @@ export function statusEnvio(docs, trained, now = new Date(), solic = {}) {
   // Solicitações de Serviço: qualquer ação do cliente (abrir, responder, lançar rubrica) mostra que ele usa o portal. { cnpj: 'AAAA-MM-DD' }
   for (const [cnpj, iso] of Object.entries(solic || {})) { const t = utcDay(iso); if (t !== null) marca(cnpj, t, 'solicitação'); }
   return trained.map(t => {
-    const last = ultimo.get(t.cnpj);
+    const k = raizDoCnpj(t.cnpj), last = ultimo.get(k);
     const dias = last === undefined ? null : Math.floor((today(now) - last) / DAY);
-    return { empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(t.cnpj) };
+    return { empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(k) };
   });
 }
 
