@@ -1,4 +1,6 @@
-import { MOCK } from '../src/mock.js';
+import { SAMPLE } from '../src/mock.js';
+import { loadConfig, formatCnpj } from '../src/config.js';
+import { analyze } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 
 const $ = id => document.getElementById(id);
@@ -32,17 +34,17 @@ const TABS = {
   nomenclatura: { label: 'Nomenclatura', icon: I.file, sev: 's-warn', title: 'Arquivos com nome fora do padrão',
     hint: 'Enviados pelo cliente, fora do padrão de nome', setores: r => [r.setor],
     cols: [['Empresa'], ['CNPJ', 'num'], ['Setor', 'col-sec'], ['Pasta', 'col-sec'], ['Arquivo'], ['Enviado em', 'num r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(r.cnpj), sector(r.setor), esc(r.pasta), esc(r.arquivo), fmt(r.data)],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), sector(r.setor), esc(r.pasta), esc(r.arquivo), fmt(r.data)],
     step: r => [`Arquivo fora do padrão · ${r.empresa}`, `${r.pasta} · ${r.arquivo}`] },
   pastas: { label: 'Pastas fora do padrão', icon: I.folder, sev: 's-warn', title: 'Empresas com pasta fora do padrão',
     hint: 'Pasta de primeiro nível que não está na estrutura oficial', setores: () => [],
     cols: [['Empresa'], ['CNPJ', 'num'], ['Pasta encontrada'], ['Arquivos', 'num r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(r.cnpj), esc(r.pasta), r.arquivos],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), r.arquivos],
     step: r => [`Pasta fora do padrão · ${r.empresa}`, `"${r.pasta}" com ${r.arquivos} arquivos`] },
   semEnvio: { label: 'Treinados sem envio', icon: I.clock, sev: 's-late', title: 'Clientes treinados que não estão enviando',
     hint: 'Treinados, com demanda, sem envio recente no portal', setores: r => r.demanda,
     cols: [['Empresa'], ['CNPJ', 'num'], ['Treinado em', 'num col-sec'], ['Demanda'], ['Situação']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(r.cnpj), fmt(r.treinadoEm), r.demanda.map(sector).join(''),
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), fmt(r.treinadoEm), r.demanda.map(sector).join(''),
       r.dias === null ? badge('Nunca enviou', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn')],
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e nunca enviou nada' : `Último envio há ${r.dias} dias`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificação desativada',
@@ -53,9 +55,11 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
-const state = { view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), recados: new Set(MOCK.recados.map(r => r.id)) };
+let cfg = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+const recompute = () => { R = analyze(SAMPLE, cfg); };
+const state = { view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), recados: new Set(SAMPLE.recados.map(r => r.id)) };
 const term = () => $('search').value.trim().toLowerCase();
-const data = k => MOCK[k].filter(r => {
+const data = k => R[k].filter(r => {
   const s = TABS[k].setores(r).filter(Boolean);
   if (state.setor !== 'Todos' && s.length && !s.includes(state.setor)) return false;
   if (state.setor !== 'Todos' && !s.length) return false;
@@ -79,7 +83,7 @@ function tableHtml(k) {
   const t = TABS[k], rows = data(k);
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;
   return `<div class="tbl-wrap"><table><thead><tr>${t.cols.map(([n, c = '']) => `<th class="${c}">${n}</th>`).join('')}</tr></thead><tbody>${
-    rows.map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${rows.length} de ${MOCK[k].length} itens</span><span>Fonte: dados de exemplo</span></div>`;
+    rows.map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${rows.length} de ${R[k].length} itens</span><span>Fonte: dados de exemplo</span></div>`;
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
@@ -89,18 +93,18 @@ function blockHtml(k) {
 function hojeHtml() {
   const n = total();
   const empresasComPend = new Set(KEYS.filter(k => k !== 'notificacoes').flatMap(k => data(k).map(r => r.cnpj))).size;
-  const pct = Math.round(((MOCK.totalEmpresas - empresasComPend) / MOCK.totalEmpresas) * 100);
+  const pct = Math.round(((SAMPLE.totalEmpresas - empresasComPend) / SAMPLE.totalEmpresas) * 100);
   const C = 2 * Math.PI * 52, okLen = C * pct / 100;
   const all = KEYS.flatMap(k => data(k).map(r => ({ k, r })));
   const top = all.sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1))[0];
   const hero = `<div class="card hero"><div class="ring"><svg viewBox="0 0 120 120"><circle class="bg" cx="60" cy="60" r="52"/><circle class="warn" cx="60" cy="60" r="52" stroke-dasharray="${C}"/><circle class="ok" cx="60" cy="60" r="52" stroke-dasharray="${okLen} ${C}"/></svg><b>${pct}%</b></div>
-    <div><span class="eyebrow">Carteira no portal · coleta de exemplo ${new Date(MOCK.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+    <div><span class="eyebrow">Carteira no portal · coleta de exemplo ${new Date(SAMPLE.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
     <h2>${n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
-    <p>${MOCK.totalEmpresas - empresasComPend} de ${MOCK.totalEmpresas} empresas sem pendência de documentos</p>
+    <p>${SAMPLE.totalEmpresas - empresasComPend} de ${SAMPLE.totalEmpresas} empresas sem pendência de documentos</p>
     ${top ? `<div class="inner"><span class="badge ${TABS[top.k].sev}">Mais urgente</span><b>${esc(TABS[top.k].step(top.r)[0])}</b></div>` : ''}
     <div class="inner"><span>Monitores:</span>${KEYS.map(k => `<span class="chip ${TABS[k].sev.replace('s-', 'c-')}" style="--c:var(--status-${TABS[k].sev.slice(2)})">${esc(TABS[k].label)} <small>${data(k).length}</small></span>`).join('')}</div></div></div>`;
   const steps = all.slice(0, 3).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
-  const recados = MOCK.recados.filter(r => state.recados.has(r.id));
+  const recados = SAMPLE.recados.filter(r => state.recados.has(r.id));
   const notes = `<div class="card notes"><h2>${I.info} Recados <span class="count">${recados.length}</span></h2>${recados.map(r => `<div class="note"><div><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p></div><button type="button" data-dismiss="${r.id}" aria-label="Dispensar recado">${I.x}</button></div>`).join('') || '<div class="note"><p>Sem recados.</p></div>'}</div>`;
   const metrics = `<div class="metrics">${KEYS.map(k => `<button type="button" class="metric ${data(k).length ? 'has' : ''}" data-go="${k}"><span>${esc(TABS[k].label)}</span><span class="count">${data(k).length}</span>${I.info}</button>`).join('')}</div>`;
   return `<div class="toolbar"><span class="grow">${n} pendências</span><button class="btn" id="exp" type="button" disabled title="Exportação na Fase 7">Exportar CSV</button></div>
@@ -111,15 +115,15 @@ function render() {
   if (state.view === 'config') {
     $('title').textContent = 'Configurações';
     $('sub').textContent = 'Padrões e listas usados nas verificações';
-    $('stamp').textContent = `coletado ${new Date(MOCK.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    $('stamp').textContent = `coletado ${new Date(SAMPLE.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
     $('view').innerHTML = '<div class="reveal" id="cfgRoot"></div>';
-    renderConfig($('cfgRoot'), { toast });
+    renderConfig($('cfgRoot'), { toast, onSaved: c => { cfg = structuredClone(c); recompute(); renderNav(); } });
     return renderNav();
   }
   const hoje = state.view === 'hoje';
   $('title').textContent = hoje ? 'Hoje' : TABS[state.view].label;
   $('sub').textContent = hoje ? 'Portal do Cliente · ControlTax' : TABS[state.view].hint;
-  $('stamp').textContent = `coletado ${new Date(MOCK.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  $('stamp').textContent = `coletado ${new Date(SAMPLE.coletadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
   $('view').innerHTML = `<div class="reveal">${hoje ? hojeHtml() : `<div class="toolbar"><span class="grow">${data(state.view).length} itens</span></div>${blockHtml(state.view)}`}</div>`;
   const v = $('view');
   v.querySelectorAll('[data-go]').forEach(e => e.addEventListener('click', () => go(e.dataset.go)));
@@ -145,4 +149,4 @@ $('themeBtn').addEventListener('click', () => {
 
 $('view').innerHTML = '<div class="sk-list"><div class="sk" style="width:60%"></div><div class="sk" style="width:90%"></div><div class="sk" style="width:75%"></div></div>';
 renderNav();
-setTimeout(render, 300);
+loadConfig().then(c => { cfg = c; recompute(); setTimeout(render, 300); });

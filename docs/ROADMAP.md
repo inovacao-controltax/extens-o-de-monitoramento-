@@ -4,7 +4,7 @@
 |------|---------|--------|
 | 1 | **Visual do hub** no padrão do Control Hub (`DESIGN.md` + `tokens.css`), com dados fictícios | feito |
 | 2 | **Configurações** (padrão de nome com teste ao vivo, pastas permitidas, dias sem envio, lista de treinados colada da planilha) salvas no navegador | feito |
-| 3 | Regras de verificação (`rules.js`) com testes, rodando sobre dados de exemplo | a fazer |
+| 3 | **Regras de verificação** (`src/rules.js`) com testes, calculadas sobre dados brutos de exemplo e ligadas às configurações salvas | feito |
 | 4 | Coleta real do Onvio (documentos) — descobrir padrão com "modo descoberta" | a fazer |
 | 5 | Coleta real do Gestta (usuários e notificações) | a fazer |
 | 6 | Varredura de todas as empresas, histórico, badge e alertas | a fazer |
