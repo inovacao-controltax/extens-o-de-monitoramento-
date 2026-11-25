@@ -94,7 +94,7 @@ function recadosBase() {
   if (q.semCnpj) out.push({ id: 'cnpj', titulo: `${q.semCnpj} empresa(s) sem CNPJ`, texto: 'Sem CNPJ elas não casam com a lista de treinados do Hub.' });
   if (!cfg.trained.length) out.push({ id: 'treinados', titulo: 'Lista de treinados vazia', texto: 'Cadastre os clientes treinados em Configurações para ativar "Treinados sem envio".' });
   if (!nsnap) out.push({ id: 'notif', titulo: 'Notificações ainda não lidas', texto: 'A leitura das notificações da equipe é automática com o Onvio aberto.' });
-  else if (nsnap.itens.length && nsnap.itens.every(u => u.estado === 'padrao')) out.push({ id: 'notifpadrao', titulo: 'Notificações: nenhum funcionário com configuração salva', texto: 'Nenhum funcionário teve a configuração alterada. Em Configurações, diga se "sem configuração salva" conta como desativado.' });
+  else if (nsnap.itens.length && nsnap.itens.every(u => u.estado === 'padrao')) out.push({ id: 'notifpadrao', titulo: 'Notificações: nenhum funcionário com configuração salva', texto: 'Nenhum funcionário teve a configuração alterada. Valem os avisos padrão do Onvio (ligados): nada a fazer.' });
   return out;
 }
 const state = { lim: {}, view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), dispensados: new Set() };
