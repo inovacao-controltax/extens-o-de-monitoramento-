@@ -13,6 +13,8 @@ export const DEFAULT_CONFIG = {
   gesttaCampo: '',    // caminho do campo "recebe notificação de tarefa nova" no cadastro do funcionário (vazio = detectar)
   notifPadraoDesligado: true,   // funcionário SEM configuração salva (404) conta como desativado? Confirmado: no Onvio ele aparece com "nova Solicitação" desmarcada
   notifCampoEmail: '', notifCampoSistema: '',   // caminhos dos campos "nova Solicitação de Serviço" (vazio = detectar)
+  hubCodigo: '',      // código de pareamento do Control Hub (o mesmo do Control Onvio): liga a extensão ao Hub para puxar os clientes treinados
+  hubAuto: true,      // com o código e o Hub aberto numa aba, atualizar a lista de treinados sozinho a cada horasAuto
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 

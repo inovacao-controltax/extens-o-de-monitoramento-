@@ -1,5 +1,6 @@
 import { discoverNames, discoverFolders } from '../src/discovery.js';
 import { trainedFromHub } from '../src/hub-sync.js';
+import { puxarTreinados, CHAVE_HUB_ESTADO } from '../src/hub-treinados.js';
 import { DEFAULT_CONFIG, SETORES, loadConfig, saveConfig, validateConfig, testFileName, parseTrained, mergeTrained, formatCnpj } from '../src/config.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -54,6 +55,14 @@ export async function renderConfig(root, { toast, onSaved }) {
         <textarea id="disc" rows="5" class="num" placeholder="2026-11 - NFE - entradas.pdf&#10;Fiscal/2026/10/2026-10 - NFE - saidas.pdf"></textarea></div>
       <div class="row"><button class="btn" id="analisar" type="button">Analisar nomes</button></div>
       <div id="discres"></div></section>
+    <section class="card wide"><h2>Puxar do Control Hub</h2>
+      <p class="note-txt">Traz sozinho as empresas <b>100% treinadas e com contato</b> direto do Hub e troca a lista abaixo. Precisa do Hub aberto numa aba do claude.ai (logado).</p>
+      <div class="field"><label for="hubcod">Código de pareamento do Hub</label>
+        <input id="hubcod" class="num" type="password" spellcheck="false" autocomplete="off" placeholder="o mesmo código do Control Onvio">
+        <span class="hint">É o mesmo que você cola no Control Onvio (Configurações › Control Hub). Fica só neste navegador e só é entregue ao Hub verdadeiro.</span></div>
+      <label class="check"><input type="checkbox" id="hubauto"> Atualizar sozinho (a cada poucas horas) enquanto o Hub estiver aberto</label>
+      <div class="row"><button class="btn btn-primary" id="hubpuxar" type="button">Puxar do Hub agora</button></div>
+      <p class="note-txt" id="hubest"></p></section>
     <section class="card wide"><h2>Clientes treinados <span class="count" id="tcount"></span></h2>
       <div class="field"><label for="paste">Colar da planilha</label>
         <textarea id="paste" rows="4" class="num" placeholder="Empresa;CNPJ;Treinado em;Demanda&#10;Alfa Ltda;11.222.333/0001-81;01/09/2026;Pessoal, Fiscal"></textarea>
@@ -110,6 +119,27 @@ export async function renderConfig(root, { toast, onSaved }) {
   $('#clearT').addEventListener('click', async () => {
     if (await confirmModal({ title: 'Remover todos os clientes treinados?', text: `${draft.trained.length} cliente(s) saem da lista. A mudança só vale depois de clicar em Salvar configurações.`, ok: 'Remover todos', danger: true })) { draft.trained = []; trained(); refreshDirty(); }
   });
+
+  // Puxar do Control Hub: o código e a opção de atualizar sozinho valem na hora (não passam pelo "Salvar configurações").
+  const hubSalvar = async parte => { const c = { ...(await loadConfig()), ...parte }; const r = await saveConfig(c); if (r.ok) { Object.assign(saved, parte); Object.assign(draft, parte); } return r.ok; };
+  const hubEstado = e => {
+    $('#hubest').innerHTML = !e ? 'Ainda não puxou do Hub neste navegador.'
+      : e.ok ? `<span class="badge s-ok">Atualizado</span> ${esc(e.msg || '')} <span class="muted">${new Date(e.em).toLocaleString('pt-BR')}</span>`
+      : `<span class="badge s-late">Não deu certo</span> ${esc(e.msg || '')}`;
+  };
+  const adotarLista = async () => { const c = await loadConfig(); if (JSON.stringify(draft.trained) === JSON.stringify(saved.trained)) { draft.trained = structuredClone(c.trained); } saved.trained = structuredClone(c.trained); trained(); refreshDirty(); };
+  $('#hubcod').value = saved.hubCodigo || ''; $('#hubauto').checked = saved.hubAuto !== false;
+  $('#hubcod').addEventListener('change', e => hubSalvar({ hubCodigo: e.target.value.trim() }));
+  $('#hubauto').addEventListener('change', e => hubSalvar({ hubAuto: e.target.checked }));
+  $('#hubpuxar').addEventListener('click', async () => {
+    $('#hubpuxar').disabled = true; $('#hubest').textContent = 'Perguntando ao Hub…';
+    try {
+      if (!(await hubSalvar({ hubCodigo: $('#hubcod').value.trim() }))) return toast('Não foi possível salvar o código', 'warn');
+      const r = await puxarTreinados(); hubEstado(r);
+      if (r.ok) { await adotarLista(); toast(`${r.n} empresas treinadas puxadas do Hub`, 'ok'); } else toast(r.msg, 'warn');
+    } finally { $('#hubpuxar').disabled = false; }
+  });
+  try { chrome.storage.local.get(CHAVE_HUB_ESTADO).then(r => hubEstado(r[CHAVE_HUB_ESTADO] || null)); chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch[CHAVE_HUB_ESTADO]) { hubEstado(ch[CHAVE_HUB_ESTADO].newValue || null); if (ch[CHAVE_HUB_ESTADO].newValue && ch[CHAVE_HUB_ESTADO].newValue.ok) adotarLista(); } }); } catch (e) { /* fora da extensão */ }
   $('#restore').addEventListener('click', async () => {
     if (await confirmModal({ title: 'Restaurar o padrão?', text: 'Padrão de nome, pastas e dias voltam ao exemplo inicial. A lista de clientes treinados é mantida.', ok: 'Restaurar padrão' })) {
       draft = { ...structuredClone(DEFAULT_CONFIG), trained: draft.trained }; fill(); toast('Padrão restaurado, falta salvar');
