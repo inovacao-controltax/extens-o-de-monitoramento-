@@ -52,18 +52,18 @@ const TABS = {
       r.dias === null ? badge('Nunca enviou', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn')],
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e nunca enviou nada' : `Último envio há ${r.dias} dias`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificação desativada',
-    hint: 'Têm tarefas ativas e não recebem aviso de tarefa nova', setores: r => [r.setor],
+    hint: 'Têm tarefas ativas e não recebem aviso de tarefa nova', setores: r => String(r.setor || '').split(', ').filter(Boolean),
     cols: [['Funcionário'], ['Setor'], ['E-mail', 'col-sec'], ['Tarefas ativas', 'num r']],
-    row: r => [`<span class="emp">${esc(r.nome)}</span>`, sector(r.setor), esc(r.email), r.tarefasAtivas],
+    row: r => [`<span class="emp">${esc(r.nome)}</span>`, String(r.setor || '').split(', ').filter(Boolean).map(sector).join('') || '<span class="muted">—</span>', esc(r.email), r.tarefasAtivas ?? '—'],
     step: r => [`Notificação desativada · ${r.nome}`, `${r.tarefasAtivas} tarefas ativas sem aviso`] },
 };
 const KEYS = Object.keys(TABS);
 
-let cfg = null, snap = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+let cfg = null, snap = null, gsnap = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
-const source = () => (real() ? { docs: real().docs, users: [], trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
+const source = () => (real() ? { docs: real().docs, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
 const recompute = () => { R = analyze(source(), cfg); marcarIcone(); };
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
@@ -71,7 +71,7 @@ function marcarIcone() {
 }
 const universo = () => (real() ? Math.max(1, real().qualidade.lidas || 0) : lendoSemDados() ? 1 : SAMPLE.totalEmpresas);
 const coletadoEm = () => (real() ? Math.max(real().coletadoEm, real().rapidaEm || 0) : SAMPLE.coletadoEm);
-const fonteNome = () => (real() ? (real().lendo ? 'Lendo o Onvio ao vivo' : 'Dados do Onvio') : lendoSemDados() ? 'Lendo o Onvio…' : 'Dados de exemplo');
+const fonteNome = () => (!real() && gsnap && !lendoSemDados() ? 'Dados do Gestta' : real() ? (real().lendo ? 'Lendo o Onvio ao vivo' : 'Dados do Onvio') : lendoSemDados() ? 'Lendo o Onvio…' : 'Dados de exemplo');
 const hora = () => new Date(coletadoEm()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 function recadoAndamento() {
   if (!andamento) return [];
@@ -92,7 +92,8 @@ function recadosBase() {
   if (q.docs && q.origemIndefinida === q.docs) out.push({ id: 'origem', titulo: 'Autor do arquivo não identificado', texto: 'Não deu para saber quem enviou cada arquivo, então nomenclatura e "treinados sem envio" ficam vazios. Rode "Testar leitura" e envie o relatório.' });
   if (q.semCnpj) out.push({ id: 'cnpj', titulo: `${q.semCnpj} empresa(s) sem CNPJ`, texto: 'Sem CNPJ elas não casam com a lista de treinados do Hub.' });
   if (!cfg.trained.length) out.push({ id: 'treinados', titulo: 'Lista de treinados vazia', texto: 'Cadastre os clientes treinados em Configurações para ativar "Treinados sem envio".' });
-  out.push({ id: 'gestta', titulo: 'Notificações ainda não lidas', texto: 'O monitor de notificações usa o Gestta e chega na próxima fase.' });
+  if (!gsnap) out.push({ id: 'gestta', titulo: 'Notificações ainda não lidas', texto: gestado && gestado.estado === 'sem_acesso' ? gestado.msg : 'Abra o Gestta logado como gestor ou administrador: a leitura dos funcionários é automática.' });
+  else if (!gsnap.campo) out.push({ id: 'gcampo', titulo: 'Campo da notificação não identificado', texto: 'O Gestta foi lido, mas a extensão não achou onde fica o aviso de tarefa nova. Veja Coleta do Onvio › Gestta.' });
   return out;
 }
 const state = { lim: {}, view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), dispensados: new Set() };
@@ -137,11 +138,14 @@ function renderNav() {
 function tableHtml(k) {
   const t = TABS[k], rows = data(k);
   if (lendoSemDados()) return '<div class="empty"><b>Lendo o Onvio…</b><p>Os resultados aparecem aqui assim que as primeiras empresas forem lidas.</p></div>';
-  if (!rows.length && real() && k === 'notificacoes') return '<div class="empty"><b>Ainda não lido do Gestta.</b><p>Este monitor chega na próxima fase.</p></div>';
+  if (!rows.length && real() && k === 'notificacoes') {
+    if (!gsnap) return `<div class="empty"><b>Ainda não lido do Gestta.</b><p>${gestado && gestado.estado === 'sem_acesso' ? esc(gestado.msg) : 'Abra o Gestta (logado como gestor ou administrador): a leitura é automática.'}</p></div>`;
+    if (!gsnap.campo) return '<div class="empty"><b>Campo da notificação não identificado.</b><p>Em Coleta do Onvio › Gestta, use "Testar leitura do Gestta" ou "Aprender chamadas" para a extensão achar onde o Gestta guarda esse aviso.</p></div>';
+  }
   if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;
   return `<div class="tbl-wrap"><table><thead><tr>${t.cols.map(([n, c = '']) => `<th class="${c}">${n}</th>`).join('')}</tr></thead><tbody>${
-    rows.slice(0, state.lim[k] || LIM).map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, state.lim[k] || LIM)} de ${rows.length} itens${rows.length > (state.lim[k] || LIM) ? ` · <button class="btn btn-sm" data-mais="${k}" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Fonte: ${fonteNome().toLowerCase()}</span></div>`;
+    rows.slice(0, state.lim[k] || LIM).map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, state.lim[k] || LIM)} de ${rows.length} itens${rows.length > (state.lim[k] || LIM) ? ` · <button class="btn btn-sm" data-mais="${k}" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Fonte: ${k === 'notificacoes' ? 'Gestta' : fonteNome().toLowerCase()}</span></div>`;
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
@@ -248,8 +252,11 @@ try {
   chrome.storage.onChanged.addListener(async (ch, area) => {
     if (area !== 'local') return;
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
+    if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
+    if (ch['monitor-gestta-estado']) gestado = ch['monitor-gestta-estado'].newValue || null;
     if (ch['monitor-snapshot']) { snap = await loadSnapshot(); }
-    if (ch['monitor-snapshot'] || ch['monitor-coleta-estado']) { recompute(); atualizarPill(); renderSuave(); }
+    if (ch['monitor-snapshot'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
+  chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
