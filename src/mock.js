@@ -19,5 +19,10 @@ export const MOCK = {
     { nome: 'Maria Souza', setor: 'Pessoal', email: 'maria@exemplo.com', tarefasAtivas: 12 },
     { nome: 'Carlos Lima', setor: 'Fiscal', email: 'carlos@exemplo.com', tarefasAtivas: 7 },
   ],
+  totalEmpresas: 20,
+  recados: [
+    { id: 'r1', titulo: 'Padrão de nome ainda não definido', texto: 'Os nomes de arquivo estão sendo comparados com um padrão de exemplo (AAAA-MM - TIPO - Descrição). Defina o padrão oficial na Fase 2.' },
+    { id: 'r2', titulo: 'Dados de exemplo', texto: 'Nada aqui vem do Onvio ou do Gestta ainda. A coleta real chega nas Fases 4 e 5.' },
+  ],
   coletadoEm: Date.now() - 36e5,
 };
