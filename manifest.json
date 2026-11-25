@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hub de Monitoramento do Portal",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Painel por cima do Onvio para acompanhar o uso do Portal do Cliente: nomenclatura, pastas, clientes sem envio e notificações.",
   "permissions": [
     "storage",
@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "https://onvio.com.br/*",
-    "https://app.gestta.com.br/*"
+    "https://app.gestta.com.br/*",
+    "https://claude.ai/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -81,6 +82,16 @@
         "src/onvio-entrada.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "src/ponte-treinados.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "web_accessible_resources": [

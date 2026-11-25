@@ -6,6 +6,7 @@
 import { guardar, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
 import { loadSnapshot, saveSnapshot } from './snapshot.js';
+import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
 
 export const CHAVE_ESTADO = 'monitor-coleta-estado', CHAVE_TRAVA = 'monitor-coleta-trava', CHAVE_CLIENTES = 'monitor-clientes';
 export const CHAVE_NOTIF = 'monitor-notificacoes';
@@ -94,6 +95,16 @@ export async function rodarNotifs() {
     try { await st().set({ [CHAVE_NOTIF_ESTADO]: { estado: x instanceof AuthError ? 'sem_sessao' : 'erro', em: Date.now(), msg: String(x && x.message || x).slice(0, 200) } }); } catch (y) { /* nada */ }
   } finally { lendoNotif = false; }
 }
+/** Treinados direto do Hub: com o código e o Hub aberto numa aba, a cada `horasAuto` (10 min depois de uma tentativa que não deu certo). */
+export async function rodarTreinados() {
+  try {
+    const cfg = await loadConfig();
+    if (!String(cfg.hubCodigo || '').trim() || cfg.hubAuto === false) return;
+    const e = (await st().get(CHAVE_HUB_ESTADO))[CHAVE_HUB_ESTADO], agora = Date.now();
+    if (e && agora - (e.em || 0) < (e.ok ? (cfg.horasAuto || 6) * 3600 * 1000 : 10 * 60 * 1000)) return;
+    await puxarTreinados();
+  } catch (x) { /* só os treinados falharam */ }
+}
 export const precisaNotifs = (g, cfg, agora = Date.now()) => !g || agora - (g.em || 0) >= (cfg.horasAuto || 6) * 3600 * 1000;
 
 export async function rodarAgora({ onEstado } = {}) {
@@ -114,6 +125,6 @@ export async function rodarAgora({ onEstado } = {}) {
 
 /** Liga a leitura: começa 2 s depois de a página abrir e confere a cada minuto se há o que ler (completa a cada `horasAuto`, rápida a cada 10 min). */
 export function iniciar({ onEstado, atrasoMs = 2000, cadaMs = 60 * 1000 } = {}) {
-  setTimeout(() => { rodarNotifs(); rodarAgora({ onEstado }); }, atrasoMs);
-  setInterval(() => { rodarNotifs(); rodarAgora({ onEstado }); }, cadaMs);
+  setTimeout(() => { rodarNotifs(); rodarTreinados(); rodarAgora({ onEstado }); }, atrasoMs);
+  setInterval(() => { rodarNotifs(); rodarTreinados(); rodarAgora({ onEstado }); }, cadaMs);
 }
