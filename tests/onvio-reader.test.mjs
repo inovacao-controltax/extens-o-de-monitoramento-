@@ -392,3 +392,38 @@ test('sondagem: descobre que a rota usa o id do funcionário (não o contactId);
   const rep3 = await diagnosticarNotificacoes(async () => { throw new Error('HTTP 500'); });
   assert.equal(rep3.passos[0].ok, false);
 });
+
+// ---- Monitor de notificações (equipe toda) ----
+import { lerNotificacoesEscritorio, detectarCamposNovaSolicitacao } from '../src/onvio-reader.js';
+import { checkNotificacoesOnvio } from '../src/rules.js';
+test('detecta os campos de "nova solicitação" por e-mail e por sistema', () => {
+  const c = [['newServiceRequest.email'], ['newServiceRequest.system'], ['tramite.email'], ['tramite.system']];
+  assert.deepEqual(detectarCamposNovaSolicitacao(c), { email: 'newServiceRequest.email', sistema: 'newServiceRequest.system' });
+  assert.deepEqual(detectarCamposNovaSolicitacao(c, { email: 'tramite.email' }).email, 'tramite.email');
+  assert.deepEqual(detectarCamposNovaSolicitacao([['a.b']]), { email: '', sistema: '' });
+});
+test('lê a equipe toda: 200 = configurado, 404 = padrão; sem e-mail nem id na saída', async () => {
+  const r = await lerNotificacoesEscritorio(fakeNotif({ n: 40, comConfig: 12 }), { paralelo: 4 });
+  assert.equal(r.total, 40); assert.equal(r.itens.length, 40);
+  assert.equal(r.itens.filter(i => i.estado === 'configurado').length, 12);
+  assert.equal(r.itens.filter(i => i.estado === 'padrao').length, 28);
+  assert.deepEqual(r.campos, { email: 'newServiceRequest.email', sistema: 'newServiceRequest.system' });
+  assert.deepEqual(Object.keys(r.itens[0]).sort(), ['email', 'estado', 'nome', 'sistema']);
+  assert.equal(r.itens[0].email, true); assert.equal(r.itens[1].email, false); assert.equal(r.itens[1].sistema, false);
+});
+test('regra: só e-mail E sistema desligados; sem configuração só com a chave', async () => {
+  const r = await lerNotificacoesEscritorio(fakeNotif({ n: 10, comConfig: 4 }));
+  // i ímpar: email false e system false (fake) => desligado
+  assert.equal(checkNotificacoesOnvio(r, {}).length, 2);
+  assert.equal(checkNotificacoesOnvio(r, { notifPadraoDesligado: true }).length, 2 + 6);
+  assert.equal(checkNotificacoesOnvio(r, { notifPadraoDesligado: true }).filter(x => x.situacao === 'padrao').length, 6);
+  assert.deepEqual(checkNotificacoesOnvio(null, {}), []);
+});
+test('analyze usa notif do Onvio quando existe', () => {
+  const a = analyze({ docs: [], trained: [], notif: { itens: [{ nome: 'A', estado: 'configurado', email: false, sistema: false }, { nome: 'B', estado: 'configurado', email: true, sistema: false }] } }, DEFAULT_CONFIG);
+  assert.equal(a.notificacoes.length, 1); assert.equal(a.notificacoes[0].nome, 'A');
+});
+test('erro de sessão na leitura da equipe interrompe tudo', async () => {
+  const f = async url => { if (/employees/.test(url)) return { items: [{ id: h32(1), contactId: h32(2), name: 'X' }], totalItems: 1, totalPages: 1 }; throw new AuthError('sessão'); };
+  await assert.rejects(lerNotificacoesEscritorio(f), AuthError);
+});

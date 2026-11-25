@@ -28,3 +28,9 @@ O modo aprender (25/11/2026) mostrou que a tela chama `GET service-requesting/v1
 
 ## Correção ao mapeamento do Gestta
 O Gestta **não** tem essa configuração por funcionário (ver `docs/gestta-mapeamento.md`). Ela é do Onvio.
+
+## Monitor (0.8.0)
+- Leitura automática com o Onvio aberto (a cada `horasAuto`, 6 h): toda a equipe ativa (`br-payroll-sr/v1/employees`), uma chamada `GET service-requesting/v1/contact-notifications/{contactId}` por pessoa, 4 de cada vez. Guarda em `monitor-notificacoes` só nome, estado e sim/não (nunca e-mail nem id).
+- **200** = configurado: o monitor acha, entre os campos verdadeiro/falso, "nova Solicitação de Serviço" por e-mail e por sistema (ou usa `notifCampoEmail`/`notifCampoSistema`). Desativado = os dois desligados.
+- **404** = sem configuração salva (padrão do Onvio). Só conta como desativado se Coleta › "sem configuração salva conta como desativada" estiver marcado (`notifPadraoDesligado`, desligado de fábrica). Se o Onvio mostra "nova solicitação" desmarcado por padrão, marque a opção.
+- Pendente de conferir no Onvio real: o formato da resposta 200 (nomes dos campos) e o padrão do 404. O "Testar leitura das notificações" agora olha a equipe toda e mostra os campos detectados.

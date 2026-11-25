@@ -3,11 +3,12 @@
 // e entrega dados parciais ao painel a cada poucos segundos (o painel cresce enquanto lê). Terminada a leitura completa, relê só as
 // empresas prioritárias a cada 10 min e a leitura completa a cada `horasAuto`. SÓ LEITURA (mesma lista fechada de rotas).
 // Para sozinha com acesso de cliente, se a sessão cair ou se o Onvio pedir calma. Uma trava impede duas abas lendo ao mesmo tempo.
-import { guardar, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, AuthError, API } from './onvio-reader.js';
+import { guardar, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
 import { loadSnapshot, saveSnapshot } from './snapshot.js';
 
 export const CHAVE_ESTADO = 'monitor-coleta-estado', CHAVE_TRAVA = 'monitor-coleta-trava', CHAVE_CLIENTES = 'monitor-clientes';
+export const CHAVE_NOTIF = 'monitor-notificacoes';
 const PARALELO = 4;
 const pausa = ms => new Promise(r => setTimeout(r, ms));
 const st = () => chrome.storage.local;
@@ -65,6 +66,14 @@ async function leituraRapida(cfg, snap, avisa) {
   avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: alvo.length, msg: `Treinadas atualizadas: ${r.qualidade.lidas}`, rapida: true });
 }
 
+/** Notificações da equipe do escritório (poucas chamadas): lê toda a equipe e guarda só nome, estado e sim/não. Falha aqui não derruba a leitura das empresas. */
+async function lerNotifs(cfg) {
+  const { f } = criarFetcher();
+  const r = await lerNotificacoesEscritorio(f, { pausa, campos: { email: cfg.notifCampoEmail, sistema: cfg.notifCampoSistema } });
+  await st().set({ [CHAVE_NOTIF]: { fonte: 'onvio', em: Date.now(), total: r.total, campos: r.campos, itens: r.itens } });
+}
+export const precisaNotifs = (g, cfg, agora = Date.now()) => !g || agora - (g.em || 0) >= (cfg.horasAuto || 6) * 3600 * 1000;
+
 export async function rodarAgora({ onEstado } = {}) {
   if (rodando) return;
   const avisa = e => { gravarEstado(e); if (onEstado) onEstado(e); };
@@ -72,10 +81,12 @@ export async function rodarAgora({ onEstado } = {}) {
     const cfg = await loadConfig(), snap = await loadSnapshot(), estado = (await st().get(CHAVE_ESTADO))[CHAVE_ESTADO];
     if (estado && estado.estado !== 'ok' && estado.estado !== 'rodando' && estado.fimEm && Date.now() - estado.fimEm < 30 * 60 * 1000) return;   // falhou há pouco: espera 30 min
     const completa = precisaColetar({ snapshot: snap, cfg, estado }), rapida = !completa && precisaRapida({ snapshot: snap, cfg });
-    if (!completa && !rapida) return;
+    const notif = precisaNotifs((await st().get(CHAVE_NOTIF))[CHAVE_NOTIF], cfg);
+    if (!completa && !rapida && !notif) return;
     rodando = true;
     if (!(await pegarTrava())) { rodando = false; return; }
-    if (completa) await leituraCompleta(cfg, avisa); else await leituraRapida(cfg, snap, avisa);
+    if (completa) await leituraCompleta(cfg, avisa); else if (rapida) await leituraRapida(cfg, snap, avisa);
+    if (notif || completa) { try { await lerNotifs(cfg); } catch (e) { if (e instanceof AuthError) throw e; /* só as notificações falharam */ } }
   } catch (e) {
     avisa({ estado: e instanceof AuthError ? 'sem_sessao' : 'erro', fimEm: Date.now(), msg: String(e && e.message || e).slice(0, 200) });
   } finally { rodando = false; await soltar(); }

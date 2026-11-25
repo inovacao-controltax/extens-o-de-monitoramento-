@@ -24,6 +24,7 @@ export async function renderColeta(root, { toast, onChanged }) {
     <section class="card"><h2>Notificações do escritório (Onvio)</h2>
       <p class="note-txt">O liga/desliga de notificação de cada funcionário fica no Onvio: Configurações › Notificações dos usuários do escritório (por exemplo "A cada nova Solicitação de Serviço › via e-mail / via sistema"). Para a extensão ler isso, ela precisa aprender quais chamadas essa tela faz.</p>
       <ol class="passos"><li>Clique em <b>Aprender chamadas do Onvio (2 h)</b>.</li><li>No Onvio, abra Configurações › Notificações do escritório, depois o lápis de <b>um</b> funcionário (sem salvar nada) e role a tela até o fim.</li><li>Volte aqui e clique em <b>Ver chamadas observadas do Onvio</b>.</li></ol>
+      <label class="check"><input type="checkbox" id="notifPadrao"> Funcionário <b>sem configuração salva</b> (o Onvio responde 404) conta como notificação desativada</label>
       <div class="row"><button class="btn btn-primary" id="testarN" type="button">Testar leitura das notificações</button><button class="btn" id="aprenderO" type="button">Aprender chamadas do Onvio (2 h)</button><button class="btn btn-ghost" id="verObsO" type="button">Ver chamadas observadas do Onvio</button></div></section>
     <section class="card"><h2>Gestta · notificações</h2>
       <p class="note-txt">Lê os funcionários do Gestta pela aba do Gestta que você já abriu (só leitura) e marca quem está com o aviso de tarefa nova desligado. O token do Gestta nunca sai da página.</p>
@@ -125,6 +126,8 @@ export async function renderColeta(root, { toast, onChanged }) {
   }
   $('#verObs').addEventListener('click', () => mostrarObservadas('monitor-gestta-observadas', 'GESTTA'));
   $('#verObsO').addEventListener('click', () => mostrarObservadas('monitor-onvio-observadas', 'ONVIO'));
+  { const c0 = await loadConfig(); $('#notifPadrao').checked = !!c0.notifPadraoDesligado;
+    $('#notifPadrao').addEventListener('change', async e => { const c = await loadConfig(); c.notifPadraoDesligado = e.target.checked; const r = await saveConfig(c); toast(r.ok ? 'Salvo: a lista de notificações já considera isso' : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); }); }
   $('#testarN').addEventListener('click', async () => {
     $('#testarN').disabled = true; $('#rel').textContent = 'Lendo as notificações da equipe do escritório…'; $('#copiar').disabled = true;
     try {
