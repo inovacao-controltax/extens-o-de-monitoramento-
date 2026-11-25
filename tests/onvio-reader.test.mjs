@@ -442,3 +442,43 @@ test('lista fechada: Solicitações de Serviço só as 10 listas e os trâmites;
     'br-payroll-sr/v1/payroll-entries/salary', 'br-payroll-sr/v1/anything', `br-payroll-sr/v2/payroll-entries/${id}`])
     assert.equal(leituraPermitida(API + r), false, r);
 });
+
+// ---- Leitura rápida (0.13.0) ----
+import { limitado } from '../src/onvio-reader.js';
+const esp = ms => new Promise(r => setTimeout(r, ms));
+test('limitado: nunca passa do limite de chamadas ao mesmo tempo', async () => {
+  let ativas = 0, pico = 0;
+  const f = limitado(async () => { ativas++; pico = Math.max(pico, ativas); await esp(5); ativas--; return 1; }, { max: 4 });
+  await Promise.all(Array.from({ length: 40 }, (_, i) => f('u' + i)));
+  assert.ok(pico <= 4 && pico >= 3, 'pico ' + pico);
+});
+test('limitado: 429 reduz o limite pela metade (mínimo 2) e respostas boas fazem subir de novo', async () => {
+  let falhar = true;
+  const f = limitado(async () => { if (falhar) throw new Error('HTTP 429'); return 1; }, { max: 8, min: 2 });
+  for (let i = 0; i < 4; i++) await f('x').catch(() => {});
+  assert.equal(f.alvo(), 2);                         // 8 -> 4 -> 2 -> 2
+  falhar = false;
+  for (let i = 0; i < 80; i++) await f('x');
+  assert.ok(f.alvo() > 2 && f.alvo() <= 8, 'alvo ' + f.alvo());
+});
+test('limitado: erro que não é de calma não muda o limite e o erro volta para quem pediu', async () => {
+  const f = limitado(async () => { throw new Error('HTTP 404'); }, { max: 6 });
+  await assert.rejects(f('x'), /HTTP 404/);
+  assert.equal(f.alvo(), 6);
+});
+test('modo rápido dá exatamente o mesmo resultado do modo normal (só chega antes)', async () => {
+  const api = () => async url => {
+    const u = new URL(url), p = u.pathname.slice(5); let m;
+    if (/^storage\/v1\/projects$/.test(p)) return { items: ['Pessoal', 'Fiscal', 'Outros'].map((n, i) => ({ id: 'P' + i, name: n })) };
+    if ((m = /^storage\/v2\/Projects\/([^/]+)\/children$/.exec(p))) return { items: [2025, 2026].map(a => ({ id: `${m[1]}-${a}`, name: String(a), itemType: 'Folder' })) };
+    if ((m = /^storage\/v2\/Folders\/([^/]+)\/children$/.exec(p))) return m[1].split('-').length < 3 ? { items: [1, 2, 3].map(k => ({ id: `${m[1]}-${k}`, name: '0' + k, itemType: 'Folder' })) } : { items: [1, 2].map(i => ({ id: m[1] + 'd' + i, name: `a${i}.pdf`, itemType: 'Document', createdDate: '2026-11-01T10:00:00Z', createdBy: { userGuid: 'g' + i } })) };
+    return { items: [] };
+  };
+  const cl = Array.from({ length: 12 }, (_, i) => ({ ids: [String(i + 1)], codigo: String(i + 1), nome: 'E' + i, cnpj: String(i + 1).padStart(14, '0'), inativo: false }));
+  const o = { conhecidas: ['Pessoal', 'Fiscal'], descer: ['Pessoal', 'Fiscal'], pausa: () => esp(0) };
+  const a = await coletar(guardar(api()), cl, { ...o, paralelo: 1 });
+  const b = await coletar(limitado(guardar(api()), { max: 10 }), cl, { ...o, paralelo: 8, rapido: true });
+  const k = r => r.docs.map(d => `${d.cnpj}|${d.pasta}|${d.arquivo}|${d.data}|${d.origem}`).sort();
+  assert.deepEqual(k(b), k(a));
+  assert.equal(b.qualidade.lidas, 12); assert.equal(b.qualidade.falhas, 0);
+});
