@@ -22,7 +22,7 @@ export async function renderColeta(root, { toast, onChanged }) {
       <div id="prog" hidden><progress id="bar" max="1" value="0"></progress><span id="progtxt" class="note-txt"></span></div></section>
     <section class="card"><h2>Dados coletados</h2><div id="dados"></div></section>
     <section class="card"><h2>Gestta · notificações</h2>
-      <p class="note-txt">Lê os funcionários do Gestta pela aba do Gestta que você já abriu (só leitura, entrando como gestor ou administrador) e marca quem está com o aviso de tarefa nova desligado. O token do Gestta nunca sai da página.</p>
+      <p class="note-txt">Lê os funcionários do Gestta pela aba do Gestta que você já abriu (só leitura) e marca quem está com o aviso de tarefa nova desligado. O token do Gestta nunca sai da página.</p>
       <p id="abaG" class="note-txt"></p>
       <div class="field" id="f-campo"><label for="campo">Campo da notificação (opcional)</label>
         <input id="campo" class="num" spellcheck="false" autocomplete="off" placeholder="ex.: notifications.task_received"><span class="hint">Deixe vazio para a extensão detectar sozinha. Se ela não achar, use "Aprender chamadas" abaixo.</span></div>

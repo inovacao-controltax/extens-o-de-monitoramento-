@@ -3,7 +3,8 @@
 // não usa rede, não roda na visão do cliente. Fechar só esconde: uma coleta em andamento continua por trás.
 (() => {
   if (window.top !== window || window.__controlMonCamada) return;
-  if (/^\/clientcenter(\/|$)/i.test(location.pathname)) return;
+  const NO_GESTTA = location.hostname === 'app.gestta.com.br';
+  if (!NO_GESTTA && /^\/clientcenter(\/|$)/i.test(location.pathname)) return;
   window.__controlMonCamada = true;
 
   const ORIGEM = new URL(chrome.runtime.getURL('')).origin;
@@ -13,7 +14,7 @@
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     *{box-sizing:border-box}
-    #b{pointer-events:auto;position:fixed;right:20px;bottom:84px;width:48px;height:48px;padding:0;border:3px solid transparent;border-radius:10px;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.25);touch-action:none;transition:border-color .2s}
+    #b{pointer-events:auto;position:fixed;right:20px;bottom:24px;width:48px;height:48px;padding:0;border:3px solid transparent;border-radius:10px;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.25);touch-action:none;transition:border-color .2s}
     #b img{height:30px;width:auto;pointer-events:none;display:block}
     #b:hover{filter:brightness(.96)} #b:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px} #b.arr{cursor:grabbing}
     #v{pointer-events:auto;position:fixed;inset:0;background:#0B1015}
@@ -70,5 +71,6 @@
     b.title = e.estado === 'rodando' ? `${dica}\nLendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? `${dica}\n${e.msg}` : e.estado === 'cliente' ? dica : `${dica}\nLeitura: ${e.msg || e.estado}`;
     b.style.borderColor = e.estado === 'rodando' ? '#B5530C' : 'transparent';   // laranja enquanto lê
   }
-  import(chrome.runtime.getURL('src/auto-coleta.js')).then(m => m.iniciar({ onEstado: estado })).catch(() => { /* leitura automática indisponível */ });
+  // A leitura do Onvio só começa em página do Onvio (no Gestta quem lê é src/gestta-auto.js).
+  if (!NO_GESTTA) import(chrome.runtime.getURL('src/auto-coleta.js')).then(m => m.iniciar({ onEstado: estado })).catch(() => { /* leitura automática indisponível */ });
 })();

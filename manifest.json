@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hub de Monitoramento do Portal",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Painel por cima do Onvio para acompanhar o uso do Portal do Cliente: nomenclatura, pastas, clientes sem envio e notificações.",
   "permissions": [
     "storage",
@@ -36,7 +36,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://onvio.com.br/*"
+        "https://onvio.com.br/*",
+        "https://app.gestta.com.br/*"
       ],
       "js": [
         "src/overlay.js"
@@ -70,14 +71,7 @@
         "src/*"
       ],
       "matches": [
-        "https://onvio.com.br/*"
-      ]
-    },
-    {
-      "resources": [
-        "src/*"
-      ],
-      "matches": [
+        "https://onvio.com.br/*",
         "https://app.gestta.com.br/*"
       ]
     }
