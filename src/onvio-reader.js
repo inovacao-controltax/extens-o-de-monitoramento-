@@ -70,15 +70,31 @@ export function perfilDaSessao(s) {
 }
 
 // ---------- Clientes ----------
-async function paginar(fetcher, caminho, pausa) {
-  const itens = [];
-  for (let pagina = 1; pagina <= 40; pagina++) {
-    const d = await fetcher(`${API}${caminho}?itemsPerPage=100&pageIndex=${pagina}&startIndex=${(pagina - 1) * 100}`);
-    const lote = listaDe(d); itens.push(...lote);
-    const total = Number(d && (d.totalItems || d.totalElements)) || 0;
-    const paginas = Number(d && d.totalPages) || 0;
-    if (lote.length < 100 || (total && itens.length >= total) || (paginas && pagina >= paginas)) break;
-    if (pausa) await pausa(300);
+/** Roda as tarefas com no máximo `n` ao mesmo tempo, devolvendo os resultados na ordem. */
+async function emParalelo(tarefas, n) {
+  const out = new Array(tarefas.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, tarefas.length) }, async () => { while (i < tarefas.length) { const k = i++; out[k] = await tarefas[k](); } }));
+  return out;
+}
+const urlPagina = (caminho, p) => `${API}${caminho}?itemsPerPage=100&pageIndex=${p}&startIndex=${(p - 1) * 100}`;
+/** Lê a lista inteira: a 1ª página diz o total e as demais vêm 4 de cada vez. Sem total, segue página a página. */
+async function paginar(fetcher, caminho, pausa, onPagina) {
+  const d1 = await fetcher(urlPagina(caminho, 1));
+  const itens = [...listaDe(d1)];
+  const total = Number(d1 && (d1.totalItems || d1.totalElements)) || 0;
+  const paginas = Number(d1 && d1.totalPages) || (total ? Math.ceil(total / 100) : 0);
+  if (onPagina) onPagina(itens.length, total);
+  if (itens.length < 100 || (total && itens.length >= total)) return itens;
+  if (paginas > 1) {
+    const resto = await emParalelo(Array.from({ length: Math.min(paginas, 40) - 1 }, (_, k) => async () => { const d = await fetcher(urlPagina(caminho, k + 2)); const l = listaDe(d); if (onPagina) onPagina(null, total, l.length); return l; }), 4);
+    resto.forEach(l => itens.push(...l));
+    return itens;
+  }
+  for (let pagina = 2; pagina <= 40; pagina++) {           // o Onvio não informou o total: página a página
+    const d = await fetcher(urlPagina(caminho, pagina)); const lote = listaDe(d); itens.push(...lote);
+    if (onPagina) onPagina(itens.length, total);
+    if (lote.length < 100) break;
+    if (pausa) await pausa(150);
   }
   return itens;
 }
@@ -88,7 +104,7 @@ async function paginar(fetcher, caminho, pausa) {
  * O id usado nos documentos pode ser o da folha ou o da CND (o Control Onvio tenta os dois): guardamos todos.
  * Só falha de vez se NENHUMA fonte responder; aí devolve o motivo de cada uma.
  */
-export async function listarClientes(fetcher, { pausa } = {}) {
+export async function listarClientes(fetcher, { pausa, onLista } = {}) {
   const por = new Map(), fontes = {};
   const nova = (codigo, id, nome) => ({ ids: id == null ? [] : [String(id)], codigo, nome: nome || '', cnpj: '', inativo: false, situacao: '' });
   const juntar = (c, nome, cnpj, inativo) => {
@@ -104,7 +120,8 @@ export async function listarClientes(fetcher, { pausa } = {}) {
   };
   const doc = v => String(v || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
   const rodar = async (nome, caminho, tratar) => {
-    try { const itens = await paginar(fetcher, caminho, pausa); itens.forEach(tratar); fontes[nome] = { ok: true, n: itens.length }; }
+    let lidos = 0;
+    try { const itens = await paginar(fetcher, caminho, pausa, (n, total, mais) => { lidos = n != null ? Math.max(lidos, n) : lidos + (mais || 0); if (onLista) onLista({ fonte: nome, lidos, total }); }); itens.forEach(tratar); fontes[nome] = { ok: true, n: itens.length }; }
     catch (e) { fontes[nome] = { ok: false, erro: String(e && e.message || e), auth: e instanceof AuthError }; }
   };
   await rodar('folha', 'br-payroll-sr/v1/clients', c => c && c.id != null && juntar(c, x => x.name || x.clientName, () => '', () => false));
@@ -213,25 +230,43 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   return { docs, projetos: projetos.length, raizUnica, truncado, _amostra };
 }
 
-/** Coleta várias empresas, uma de cada vez. onProgresso({feito,total}); parar() => true interrompe. */
-export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer } = {}) {
-  const alvo = clientes.filter(c => !c.inativo && c.ids.length).slice(0, limite > 0 ? limite : undefined);
+/**
+ * Coleta várias empresas, `paralelo` de cada vez (padrão 1). `prioridade` (Set de CNPJ) lê essas primeiro.
+ * onProgresso({feito,total}); onParcial({docs, qualidade}) a cada `cadaParcialMs` com o que já foi lido (docs já classificados, cópia);
+ * parar() => true interrompe. Erro de sessão (AuthError) interrompe tudo; falha numa empresa não derruba as outras.
+ */
+export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer, paralelo = 1, prioridade, onParcial, cadaParcialMs = 2500 } = {}) {
+  let alvo = clientes.filter(c => !c.inativo && c.ids.length);
+  if (prioridade && prioridade.size) alvo = [...alvo.filter(c => prioridade.has(c.cnpj)), ...alvo.filter(c => !prioridade.has(c.cnpj))];
+  alvo = alvo.slice(0, limite > 0 ? limite : undefined);
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
-  for (const c of alvo) {
-    if (parar && parar()) { q.interrompida = true; break; }
-    try {
-      const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer });
-      docs.push(...r.docs); q.lidas++;
-      if (!r.projetos) q.semProjeto++;
-      if (r.truncado) q.truncadas++;
-    } catch (e) { if (e instanceof AuthError) throw e; q.falhas++; }
-    if (!c.cnpj) q.semCnpj++;
-    if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
-    if (pausa) await pausa(150);
+  let i = 0, fatal = null, ultimo = 0;                       // o 1º parcial sai logo depois da 1ª empresa
+  const resumo = (lista) => { const x = { ...q }; x.docs = lista.filter(d => d.arquivo).length; x.origemIndefinida = lista.filter(d => d.arquivo && d.origem === 'indefinida').length; return x; };
+  async function trabalhador() {
+    while (!fatal) {
+      if (parar && parar()) { q.interrompida = true; return; }
+      const c = alvo[i++]; if (!c) return;
+      try {
+        const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer });
+        docs.push(...r.docs); q.lidas++;
+        if (!r.projetos) q.semProjeto++;
+        if (r.truncado) q.truncadas++;
+      } catch (e) { if (e instanceof AuthError) { fatal = e; return; } q.falhas++; }
+      if (!c.cnpj) q.semCnpj++;
+      if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
+      // cadência adaptativa: quanto mais linhas já lidas, mais caro é entregar um parcial
+      if (onParcial && Date.now() - ultimo >= (cadaParcialMs === 0 ? 0 : Math.max(cadaParcialMs, Math.min(15000, docs.length * 0.15)))) {
+        ultimo = Date.now();
+        const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia);
+        await onParcial({ docs: copia, qualidade: { ...resumo(copia), autores: aut } });
+      }
+      if (pausa) await pausa(paralelo > 1 ? 60 : 150);
+    }
   }
+  await Promise.all(Array.from({ length: Math.max(1, paralelo) }, trabalhador));
+  if (fatal) throw fatal;
   const aut = classificarAutores(docs);
-  q.docs = docs.filter(d => d.arquivo).length; q.origemIndefinida = docs.filter(d => d.arquivo && d.origem === 'indefinida').length;
-  q.autores = aut;
+  const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut });
   return { docs, qualidade: q };
 }
 
@@ -350,8 +385,20 @@ export function fetcherComFallback(brutos, { espera = dorme } = {}) {
 export function precisaColetar({ snapshot, cfg, agora = Date.now(), estado }) {
   if (cfg.autoLer === false) return false;
   const horas = Number(cfg.horasAuto) > 0 ? Number(cfg.horasAuto) : 6;
-  const velho = !snapshot || snapshot.fonte !== 'onvio' || agora - snapshot.coletadoEm > horas * 36e5;
+  const velho = !snapshot || snapshot.fonte !== 'onvio' || snapshot.parcial || agora - snapshot.coletadoEm > horas * 36e5;
   if (!velho) return false;
   if (estado && estado.fimEm && estado.estado !== 'ok' && agora - estado.fimEm < 30 * 60 * 1000) return false;   // falhou há pouco: espera 30 min
   return true;
+}
+
+/** Releitura rápida (as empresas prioritárias) quando os dados são recentes mas têm mais de `minutos`. */
+export function precisaRapida({ snapshot, cfg, agora = Date.now(), minutos = 10 }) {
+  if (cfg.autoLer === false || !snapshot || snapshot.fonte !== 'onvio' || snapshot.parcial) return false;
+  if (!(cfg.trained && cfg.trained.length)) return false;
+  return agora - Math.max(snapshot.coletadoEm || 0, snapshot.rapidaEm || 0) >= minutos * 60 * 1000;
+}
+/** Troca no snapshot as linhas das empresas relidas (por CNPJ), mantendo as demais. */
+export function mesclarEmpresas(docsAntigos, docsNovos, cnpjsLidos) {
+  const lidos = new Set(cnpjsLidos);
+  return [...docsAntigos.filter(d => !lidos.has(d.cnpj)), ...docsNovos];
 }

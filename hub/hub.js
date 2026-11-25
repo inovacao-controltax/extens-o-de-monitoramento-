@@ -62,15 +62,16 @@ const KEYS = Object.keys(TABS);
 let cfg = null, snap = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6;
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
-const source = () => (real() ? { docs: real().docs, users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
+const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
+const source = () => (real() ? { docs: real().docs, users: [], trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
 const recompute = () => { R = analyze(source(), cfg); marcarIcone(); };
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
   try { const n = real() ? Object.values(R).reduce((s, l) => s + l.length, 0) : 0; chrome.action.setBadgeText({ text: n ? String(n) : '' }); chrome.action.setBadgeBackgroundColor({ color: '#C2000C' }); } catch (e) { /* fora da extensão */ }
 }
-const universo = () => (real() ? Math.max(1, real().qualidade.lidas || 0) : SAMPLE.totalEmpresas);
-const coletadoEm = () => (real() ? real().coletadoEm : SAMPLE.coletadoEm);
-const fonteNome = () => (real() ? 'Dados do Onvio' : 'Dados de exemplo');
+const universo = () => (real() ? Math.max(1, real().qualidade.lidas || 0) : lendoSemDados() ? 1 : SAMPLE.totalEmpresas);
+const coletadoEm = () => (real() ? Math.max(real().coletadoEm, real().rapidaEm || 0) : SAMPLE.coletadoEm);
+const fonteNome = () => (real() ? (real().lendo ? 'Lendo o Onvio ao vivo' : 'Dados do Onvio') : lendoSemDados() ? 'Lendo o Onvio…' : 'Dados de exemplo');
 const hora = () => new Date(coletadoEm()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 function recadoAndamento() {
   if (!andamento) return [];
@@ -83,11 +84,11 @@ function recadosAtuais() {
   return [...recadoAndamento(), ...recadosBase()];
 }
 function recadosBase() {
-  if (!real()) return SAMPLE.recados;
+  if (!real()) return lendoSemDados() ? [] : SAMPLE.recados;
   const q = real().qualidade, out = [];
   const horas = Math.floor((Date.now() - real().coletadoEm) / 36e5);
   if (horas >= VELHO_H) out.push({ id: 'velho', titulo: `Dados de ${horas} h atrás`, texto: 'Clique em "Coletar do Onvio" para atualizar.' });
-  if (real().parcial) out.push({ id: 'parcial', titulo: 'Coleta parcial', texto: `Foram lidas ${q.lidas} de ${real().totalEmpresas} empresas ativas. Os números valem só para elas. Rode "Coletar agora" com 0 para ler todas.` });
+  if (real().parcial && !real().lendo) out.push({ id: 'parcial', titulo: 'Coleta parcial', texto: `Foram lidas ${q.lidas} de ${real().totalEmpresas} empresas ativas. Os números valem só para elas. Rode "Coletar agora" com 0 para ler todas.` });
   if (q.docs && q.origemIndefinida === q.docs) out.push({ id: 'origem', titulo: 'Autor do arquivo não identificado', texto: 'Não deu para saber quem enviou cada arquivo, então nomenclatura e "treinados sem envio" ficam vazios. Rode "Testar leitura" e envie o relatório.' });
   if (q.semCnpj) out.push({ id: 'cnpj', titulo: `${q.semCnpj} empresa(s) sem CNPJ`, texto: 'Sem CNPJ elas não casam com a lista de treinados do Hub.' });
   if (!cfg.trained.length) out.push({ id: 'treinados', titulo: 'Lista de treinados vazia', texto: 'Cadastre os clientes treinados em Configurações para ativar "Treinados sem envio".' });
@@ -118,6 +119,7 @@ function renderNav() {
 
 function tableHtml(k) {
   const t = TABS[k], rows = data(k);
+  if (lendoSemDados()) return '<div class="empty"><b>Lendo o Onvio…</b><p>Os resultados aparecem aqui assim que as primeiras empresas forem lidas.</p></div>';
   if (!rows.length && real() && k === 'notificacoes') return '<div class="empty"><b>Ainda não lido do Gestta.</b><p>Este monitor chega na próxima fase.</p></div>';
   if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;
@@ -136,11 +138,11 @@ function hojeHtml() {
   const C = 2 * Math.PI * 52, okLen = C * pct / 100;
   const all = KEYS.flatMap(k => data(k).map(r => ({ k, r })));
   const top = all.sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1))[0];
-  const semLeitura = !!real() && !(real().qualidade.lidas > 0);
+  const semLeitura = lendoSemDados() || (!!real() && !(real().qualidade.lidas > 0) && !real().lendo);
   const hero = `<div class="card hero"><div class="ring"><svg viewBox="0 0 120 120"><circle class="bg" cx="60" cy="60" r="52"/><circle class="warn" cx="60" cy="60" r="52" stroke-dasharray="${C}"/><circle class="ok" cx="60" cy="60" r="52" stroke-dasharray="${okLen} ${C}"/></svg><b>${semLeitura ? '—' : pct + '%'}</b></div>
-    <div><span class="eyebrow">Carteira no portal · ${real() ? 'coleta do Onvio' : 'coleta de exemplo'} ${hora()}</span>
-    <h2>${semLeitura ? 'Nada foi lido ainda' : n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
-    <p>${semLeitura ? 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.' : `${Math.max(0, universo() - empresasComPend)} de ${universo()} empresas sem pendência de documentos`}</p>
+    <div><span class="eyebrow">Carteira no portal · ${real() ? (real().lendo ? 'lendo ao vivo' : 'coleta do Onvio') : lendoSemDados() ? 'lendo agora' : 'coleta de exemplo'} ${hora()}</span>
+    <h2>${semLeitura ? (lendoSemDados() ? 'Lendo o Onvio…' : 'Nada foi lido ainda') : n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
+    <p>${semLeitura ? (lendoSemDados() ? 'Os resultados aparecem aqui assim que as primeiras empresas forem lidas.' : 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.') : `${Math.max(0, universo() - empresasComPend)} de ${universo()} empresas sem pendência de documentos`}</p>
     ${top ? `<div class="inner"><span class="badge ${TABS[top.k].sev}">Mais urgente</span><b>${esc(TABS[top.k].step(top.r)[0])}</b></div>` : ''}
     <div class="inner"><span>Monitores:</span>${KEYS.map(k => `<span class="chip ${TABS[k].sev.replace('s-', 'c-')}" style="--c:var(--status-${TABS[k].sev.slice(2)})">${esc(TABS[k].label)} <small>${data(k).length}</small></span>`).join('')}</div></div></div>`;
   const steps = all.slice(0, 3).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
@@ -211,13 +213,19 @@ Promise.all([loadConfig(), loadSnapshot()]).then(([c, sn]) => {
 });
 
 // A leitura automática grava a coleta e o andamento no armazenamento: o painel acompanha sozinho, sem clique.
+let aguardandoRender = false, ultimoRender = 0;
+function renderSuave() {
+  if (state.view === 'coleta' || state.view === 'config') return renderNav();
+  const falta = 1500 - (Date.now() - ultimoRender);
+  if (falta > 0) { if (!aguardandoRender) { aguardandoRender = true; setTimeout(() => { aguardandoRender = false; renderSuave(); }, falta); } return; }
+  ultimoRender = Date.now(); render();
+}
 try {
   chrome.storage.onChanged.addListener(async (ch, area) => {
     if (area !== 'local') return;
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
-    if (ch['monitor-snapshot']) { snap = await loadSnapshot(); recompute(); }
-    if ((ch['monitor-snapshot'] || ch['monitor-coleta-estado']) && state.view !== 'coleta' && state.view !== 'config') render();
-    else if (ch['monitor-snapshot']) renderNav();
+    if (ch['monitor-snapshot']) { snap = await loadSnapshot(); }
+    if (ch['monitor-snapshot'] || ch['monitor-coleta-estado']) { recompute(); renderSuave(); }
   });
-  chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; });
+  chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }

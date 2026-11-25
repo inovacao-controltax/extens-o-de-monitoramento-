@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classificarAutores, fetcherComFallback, precisaColetar, resumirChamadas, rotulo, lerResposta, API, leituraPermitida, guardar, perfilDaSessao, listarClientes, filhosDe, origemDoDocumento, lerEmpresa, coletar, diagnosticar, textoDoRelatorio, camposDe, AuthError } from '../src/onvio-reader.js';
+import { precisaRapida, mesclarEmpresas, classificarAutores, fetcherComFallback, precisaColetar, resumirChamadas, rotulo, lerResposta, API, leituraPermitida, guardar, perfilDaSessao, listarClientes, filhosDe, origemDoDocumento, lerEmpresa, coletar, diagnosticar, textoDoRelatorio, camposDe, AuthError } from '../src/onvio-reader.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import { analyze } from '../src/rules.js';
 
@@ -268,4 +268,74 @@ test('leitura automática: só quando os dados faltam ou estão velhos, e não i
   assert.equal(precisaColetar({ snapshot: null, cfg, agora, estado: { estado: 'sem_sessao', fimEm: agora - 10 * 60 * 1000 } }), false);
   assert.equal(precisaColetar({ snapshot: null, cfg, agora, estado: { estado: 'erro', fimEm: agora - 40 * 60 * 1000 } }), true);
   assert.equal(lerResposta({ status: 200, ct: 'application/json', body: '{}' }) !== null, true);
+});
+
+// ---------- Fase 4f: leitura ao vivo ----------
+const muitas = n => {
+  const c = cenario();
+  c.clientes = Array.from({ length: n }, (_, i) => ({ id: 'f' + i, code: i + 1, name: 'E' + i }));
+  c.cnd = c.clientes.map((x, i) => ({ id: 'c' + i, code: i + 1, clientName: 'E' + i, nationalIdentity: String(i).padStart(14, '0'), clientStatus: 'Ativo' }));
+  c.projetos = {}; c.filhos = {};
+  c.clientes.forEach((x, i) => { c.projetos['f' + i] = [{ id: 'p' + i, name: 'Pessoal' }]; c.filhos['p' + i] = [arq('a' + i, 'doc' + i + '.pdf', { createdBy: { userGuid: 'cli' + i } })]; });
+  return c;
+};
+test('páginas da lista vêm em paralelo, na ordem, e sem perder nem repetir item (250 empresas)', async () => {
+  const f = fakeApi(muitas(250));
+  const { clientes } = await listarClientes(f);
+  assert.equal(clientes.length, 250);
+  assert.deepEqual(clientes.map(c => c.codigo).slice(0, 3), ['1', '2', '3']);
+  assert.equal(new Set(clientes.map(c => c.codigo)).size, 250);
+  assert.equal(f.pedidos.filter(u => u.includes('br-payroll-sr')).length, 3);
+});
+test('lista: o progresso é informado (lidos e total)', async () => {
+  const marcas = [];
+  await listarClientes(fakeApi(muitas(250)), { onLista: l => marcas.push(`${l.fonte}:${l.lidos}/${l.total}`) });
+  assert.ok(marcas.some(m => m.startsWith('folha:') && m.endsWith('/250')));
+  assert.equal(marcas.filter(m => m.startsWith('folha:')).at(-1), 'folha:250/250');
+});
+test('coleta em paralelo lê todas as empresas uma vez só e conta igual à sequencial', async () => {
+  const c = muitas(20), f = fakeApi(c), { clientes } = await listarClientes(f);
+  const seq = await coletar(f, clientes, { conhecidas: ['Pessoal'], paralelo: 1 });
+  const par = await coletar(f, clientes, { conhecidas: ['Pessoal'], paralelo: 4 });
+  assert.equal(par.qualidade.lidas, 20); assert.equal(par.docs.length, seq.docs.length);
+  assert.deepEqual(par.docs.map(d => d.arquivo).sort(), seq.docs.map(d => d.arquivo).sort());
+});
+test('em paralelo, erro de sessão ainda interrompe tudo e falha numa empresa não derruba as outras', async () => {
+  const c = muitas(10), f = fakeApi(c), { clientes } = await listarClientes(f);
+  const g = async u => { if (u.includes('primaryAssociationId=f3')) throw new Error('HTTP 500'); return f(u); };
+  const r = await coletar(g, clientes, { conhecidas: ['Pessoal'], paralelo: 4 });
+  assert.equal(r.qualidade.falhas, 1); assert.equal(r.qualidade.lidas, 9);
+  const h = async u => { if (u.includes('primaryAssociationId=f5')) throw new AuthError('HTTP 401'); return f(u); };
+  await assert.rejects(() => coletar(h, clientes, { conhecidas: ['Pessoal'], paralelo: 4 }), AuthError);
+});
+test('prioridade: as empresas treinadas são lidas primeiro', async () => {
+  const c = muitas(10), f = fakeApi(c), { clientes } = await listarClientes(f);
+  const ordem = [];
+  const g = async u => { const m = /primaryAssociationId=(f\d+)/.exec(u); if (m) ordem.push(m[1]); return f(u); };
+  await coletar(g, clientes, { conhecidas: ['Pessoal'], prioridade: new Set([clientes[7].cnpj, clientes[9].cnpj]) });
+  assert.deepEqual(ordem.slice(0, 3), ['f7', 'f9', 'f0']);
+});
+test('dados parciais ao vivo: já classificados, em cópia, e o resultado final não é afetado', async () => {
+  const c = muitas(12), f = fakeApi(c), { clientes } = await listarClientes(f);
+  const parciais = [];
+  const r = await coletar(f, clientes, { conhecidas: ['Pessoal'], paralelo: 2, cadaParcialMs: 0, onParcial: async p => parciais.push(p) });
+  assert.ok(parciais.length >= 5, 'emitiu várias vezes: ' + parciais.length);
+  assert.ok(parciais.at(-1).qualidade.lidas >= parciais[0].qualidade.lidas);
+  assert.ok(parciais.every(p => p.docs.every(d => !('autor' in d))), 'sem identificador de autor');
+  assert.ok(parciais[0].docs.every(d => d.origem !== 'indefinida' || !d.arquivo));
+  assert.equal(r.qualidade.lidas, 12); assert.equal(r.docs.length, 12);
+});
+test('releitura rápida: só com dados recentes, treinadas cadastradas e 10 min desde a última', () => {
+  const agora = Date.UTC(2026, 10, 25, 12), min = n => agora - n * 60 * 1000, cfg = { autoLer: true, trained: [{ cnpj: '1' }] };
+  const snap = (extra = {}) => ({ fonte: 'onvio', coletadoEm: min(30), ...extra });
+  assert.equal(precisaRapida({ snapshot: snap(), cfg, agora }), true);
+  assert.equal(precisaRapida({ snapshot: snap({ rapidaEm: min(5) }), cfg, agora }), false);
+  assert.equal(precisaRapida({ snapshot: snap(), cfg: { ...cfg, trained: [] }, agora }), false);
+  assert.equal(precisaRapida({ snapshot: snap({ parcial: true }), cfg, agora }), false);
+  assert.equal(precisaRapida({ snapshot: null, cfg, agora }), false);
+  assert.equal(precisaColetar({ snapshot: snap({ parcial: true, coletadoEm: min(1) }), cfg: { autoLer: true }, agora }), true, 'leitura interrompida continua');
+});
+test('mesclar: troca só as linhas das empresas relidas', () => {
+  const antigos = [{ cnpj: 'A', arquivo: 'velho.pdf' }, { cnpj: 'B', arquivo: 'b.pdf' }, { cnpj: 'A', arquivo: '' }];
+  assert.deepEqual(mesclarEmpresas(antigos, [{ cnpj: 'A', arquivo: 'novo.pdf' }], ['A']), [{ cnpj: 'B', arquivo: 'b.pdf' }, { cnpj: 'A', arquivo: 'novo.pdf' }]);
 });
