@@ -26,6 +26,7 @@ const I = {
 };
 $('themeBtn').innerHTML = I.moon;
 $('bell').innerHTML = I.bell;
+$('fechar').innerHTML = I.x;
 $('cfgBtn').innerHTML = I.gear;
 
 const secClass = s => ({ 'Pessoal': 'sec-pessoal', 'Contábil': 'sec-contabil', 'Fiscal': 'sec-fiscal', 'Financeiro': 'sec-financeiro' }[s] || 'sec-outro');
@@ -59,9 +60,14 @@ const TABS = {
 const KEYS = Object.keys(TABS);
 
 let cfg = null, snap = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+const VELHO_H = 6;
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const source = () => (real() ? { docs: real().docs, users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
-const recompute = () => { R = analyze(source(), cfg); };
+const recompute = () => { R = analyze(source(), cfg); marcarIcone(); };
+// Número de pendências no ícone da extensão (só com dados reais)
+function marcarIcone() {
+  try { const n = real() ? Object.values(R).reduce((s, l) => s + l.length, 0) : 0; chrome.action.setBadgeText({ text: n ? String(n) : '' }); chrome.action.setBadgeBackgroundColor({ color: '#C2000C' }); } catch (e) { /* fora da extensão */ }
+}
 const universo = () => (real() ? Math.max(1, real().qualidade.lidas || 0) : SAMPLE.totalEmpresas);
 const coletadoEm = () => (real() ? real().coletadoEm : SAMPLE.coletadoEm);
 const fonteNome = () => (real() ? 'Dados do Onvio' : 'Dados de exemplo');
@@ -69,6 +75,8 @@ const hora = () => new Date(coletadoEm()).toLocaleTimeString('pt-BR', { hour: '2
 function recadosAtuais() {
   if (!real()) return SAMPLE.recados;
   const q = real().qualidade, out = [];
+  const horas = Math.floor((Date.now() - real().coletadoEm) / 36e5);
+  if (horas >= VELHO_H) out.push({ id: 'velho', titulo: `Dados de ${horas} h atrás`, texto: 'Clique em "Coletar do Onvio" para atualizar.' });
   if (real().parcial) out.push({ id: 'parcial', titulo: 'Coleta parcial', texto: `Foram lidas ${q.lidas} de ${real().totalEmpresas} empresas ativas. Os números valem só para elas. Rode "Coletar agora" com 0 para ler todas.` });
   if (q.docs && q.origemIndefinida === q.docs) out.push({ id: 'origem', titulo: 'Autor do arquivo não identificado', texto: 'Não deu para saber quem enviou cada arquivo, então nomenclatura e "treinados sem envio" ficam vazios. Rode "Testar leitura" e envie o relatório.' });
   if (q.semCnpj) out.push({ id: 'cnpj', titulo: `${q.semCnpj} empresa(s) sem CNPJ`, texto: 'Sem CNPJ elas não casam com a lista de treinados do Hub.' });
@@ -167,7 +175,7 @@ $('search').addEventListener('input', () => { if (state.view !== 'config') rende
 $('cfgBtn').addEventListener('click', () => go('config'));
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('search').focus(); } });
 $('bell').addEventListener('click', () => toast('Sem alertas novos'));
-$('refresh').addEventListener('click', () => toast('Coleta real disponível na Fase 4'));
+$('refresh').addEventListener('click', () => go('coleta'));
 $('themeBtn').addEventListener('click', () => {
   const el = document.documentElement, cur = el.getAttribute('data-theme');
   const next = (cur === 'dark' || (!cur && matchMedia('(prefers-color-scheme: dark)').matches)) ? 'light' : 'dark';
@@ -178,4 +186,17 @@ $('themeBtn').addEventListener('click', () => {
 
 $('view').innerHTML = '<div class="sk-list"><div class="sk" style="width:60%"></div><div class="sk" style="width:90%"></div><div class="sk" style="width:75%"></div></div>';
 renderNav();
-Promise.all([loadConfig(), loadSnapshot()]).then(([c, sn]) => { cfg = c; snap = sn; recompute(); setTimeout(render, 300); });
+// Por cima do Onvio (?camada=1): botão fechar, Esc e, se a pessoa ligou, coleta sozinha quando os dados estão velhos.
+const camada = new URLSearchParams(location.search).get('camada') === '1';
+if (camada) {
+  document.documentElement.dataset.camada = '1';
+  $('fechar').hidden = false;
+  const fechar = () => parent.postMessage({ tipo: 'controlmon-fechar' }, '*');
+  $('fechar').addEventListener('click', fechar);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').classList.contains('open')) fechar(); });
+}
+Promise.all([loadConfig(), loadSnapshot()]).then(([c, sn]) => {
+  cfg = c; snap = sn; recompute(); setTimeout(render, 300);
+  const velho = !real() || Date.now() - real().coletadoEm > VELHO_H * 36e5;
+  if (camada && cfg.autoColetar && velho) setTimeout(() => { go('coleta'); setTimeout(() => $('coletar')?.click(), 400); }, 700);
+});

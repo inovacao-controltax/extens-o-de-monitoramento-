@@ -33,6 +33,6 @@ export const SAMPLE = {
   ],
   recados: [
     { id: 'r1', titulo: 'Padrão de nome ainda é um exemplo', texto: 'As verificações já usam o padrão salvo em Configurações. Troque o exemplo pelo padrão oficial da ControlTax.' },
-    { id: 'r2', titulo: 'Dados de exemplo', texto: 'Nada aqui vem do Onvio ou do Gestta ainda. A coleta real chega nas Fases 4 e 5.' },
+    { id: 'r2', titulo: 'Dados de exemplo', texto: 'Nada aqui veio do Onvio ainda. Clique em "Coletar do Onvio" (com o Onvio aberto e logado). O Gestta chega na próxima fase.' },
   ],
 };

@@ -197,3 +197,6 @@ progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-de
 .kv{list-style:none;margin:0 0 var(--sp-3);padding:0;}
 .kv li{display:flex;justify-content:space-between;gap:var(--sp-3);padding:6px 0;border-bottom:1px solid var(--rule);font-size:var(--fs-control);}
 .kv li:last-child{border-bottom:0;}.kv span{color:var(--ink-2);}
+
+.chk{display:flex;align-items:flex-start;gap:var(--sp-2);margin:0 0 var(--sp-3);font-size:var(--fs-control);color:var(--ink-2);}
+.chk input{margin-top:2px;}
