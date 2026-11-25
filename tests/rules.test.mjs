@@ -5,7 +5,7 @@ import { setorDaPasta, checkNomenclatura, checkPastas, checkSemEnvio, checkNotif
 
 const NOW = new Date('2026-11-25T15:00:00Z');
 const cfg = { ...DEFAULT_CONFIG, trained: [] };
-const doc = (o = {}) => ({ empresa: 'A', cnpj: '1', pasta: 'Fiscal/2026/11', arquivo: '2026-11 - NFE - x.pdf', data: '2026-11-20', origem: 'cliente', ...o });
+const doc = (o = {}) => ({ empresa: 'A', cnpj: '1', pasta: 'Fiscal/2026/11', arquivo: '11-2026 NFE x.pdf', data: '2026-11-20', origem: 'cliente', ...o });
 
 test('setor pela pasta, sem diferenciar acento e maiúscula', () => {
   assert.equal(setorDaPasta('contabil/2026'), 'Contábil');

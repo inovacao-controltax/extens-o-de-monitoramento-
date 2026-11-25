@@ -18,7 +18,7 @@ Quatro verificações automáticas, lendo do Onvio Portal do Cliente e do Gestta
 - Dados em `chrome.storage.local` (nada sai do navegador).
 
 ## O que falta (próximos passos)
-1. **Padrão real de nomenclatura/pastas**: definir o regex e a árvore oficial (hoje é um exemplo `AAAA-MM - TIPO - Descrição.ext`).
+1. **Padrão de nomenclatura (definido em 25/11/2026)**: `MM-AAAA nome do arquivo` (competência antes do nome; o que foge disso está errado). Falta ainda a árvore oficial de pastas.
 2. **Seletores/endpoints reais**: inspecionar Onvio e Gestta; preferir a API interna (fetch com a sessão) à raspagem de DOM. As skills `controltax-coleta-solicitacoes-onvio` e `gestta-*` já documentam essas armadilhas.
 3. **Varredura de todas as empresas**: hoje coleta a página aberta; evoluir para um modo que percorre empresa por empresa (com pausa/limite para não sobrecarregar o portal).
 4. **Lista de treinados**: importar da planilha de checklist de treinamento.

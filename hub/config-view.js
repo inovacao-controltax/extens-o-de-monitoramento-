@@ -36,9 +36,9 @@ export async function renderConfig(root, { toast, onSaved }) {
   <div class="cfg-grid">
     <section class="card"><h2>Padrão de nome de arquivo</h2>
       <div class="field" id="f-pattern"><label for="pattern">Expressão do padrão (regex)</label>
-        <input id="pattern" class="num" spellcheck="false" autocomplete="off"><span class="hint" id="h-pattern">Exemplo de padrão: AAAA-MM - TIPO - Descrição.pdf. Troque pelo padrão oficial da ControlTax.</span></div>
+        <input id="pattern" class="num" spellcheck="false" autocomplete="off"><span class="hint" id="h-pattern">Padrão da ControlTax: a competência MM-AAAA antes do nome, por exemplo 10-2026 Folha de pagamento.pdf. O que foge disso é apontado.</span></div>
       <div class="field" id="f-test"><label for="testname">Testar um nome de arquivo</label>
-        <div class="row"><input id="testname" placeholder="2026-11 - NFE - entradas.pdf" autocomplete="off"><span id="testres"></span></div></div></section>
+        <div class="row"><input id="testname" placeholder="11-2026 NFE entradas.pdf" autocomplete="off"><span id="testres"></span></div></div></section>
     <section class="card"><h2>Pastas permitidas</h2>
       <p class="note-txt">Pastas de primeiro nível aceitas em cada empresa no portal de documentos.</p>
       <div class="chips" id="chips"></div>
@@ -84,7 +84,7 @@ export async function renderConfig(root, { toast, onSaved }) {
   }
   function fill() { $('#pattern').value = draft.filePattern; $('#dias').value = draft.diasSemEnvio; chips(); trained(); test(); refreshDirty(); }
 
-  $('#pattern').addEventListener('input', e => { draft.filePattern = e.target.value; setErr('pattern', null); $('#f-pattern').classList.remove('has-error'); $('#h-pattern').textContent = 'Exemplo de padrão: AAAA-MM - TIPO - Descrição.pdf. Troque pelo padrão oficial da ControlTax.'; test(); refreshDirty(); });
+  $('#pattern').addEventListener('input', e => { draft.filePattern = e.target.value; setErr('pattern', null); $('#f-pattern').classList.remove('has-error'); $('#h-pattern').textContent = 'Padrão da ControlTax: a competência MM-AAAA antes do nome, por exemplo 10-2026 Folha de pagamento.pdf. O que foge disso é apontado.'; test(); refreshDirty(); });
   $('#testname').addEventListener('input', test);
   $('#dias').addEventListener('input', e => { draft.diasSemEnvio = e.target.value === '' ? NaN : Number(e.target.value); $('#f-dias').classList.remove('has-error'); $('#h-dias').textContent = 'Vale para clientes já treinados e com demanda.'; refreshDirty(); });
   const addFolder = () => {
