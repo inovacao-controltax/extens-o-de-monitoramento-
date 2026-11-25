@@ -29,6 +29,24 @@ export function leituraPermitida(url) {
 }
 /** Nome da rota sem ids e sem valores (para o relatório): storage/v2/Folders/{id}/children. */
 export const rotulo = url => { try { return new URL(url).pathname.slice(5).replace(/\/[^/]+(?=\/children$)/, '/{id}').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}/gi, '{id}') + (new URL(url).searchParams.has('primaryAssociationId') ? '?primaryAssociationId={id}' : ''); } catch (e) { return String(url).slice(0, 60); } };
+/**
+ * Limite GERAL de chamadas ao mesmo tempo (para a leitura ser rápida sem sobrecarregar o Onvio). Começa em `max`; se o Onvio responder
+ * 429/502/503/504, cai pela metade (mínimo `min`) e volta a subir de um em um depois de 25 respostas boas.
+ */
+export function limitado(fetcher, { max = 10, min = 2 } = {}) {
+  let alvo = max, ativos = 0, boas = 0; const fila = [];
+  const andar = () => { while (ativos < alvo && fila.length) { ativos++; fila.shift()(); } };
+  const f = url => new Promise((ok, erro) => {
+    fila.push(async () => {
+      try { const r = await fetcher(url); if (++boas >= 25 && alvo < max) { alvo++; boas = 0; } ok(r); }
+      catch (e) { if (/HTTP (429|502|503|504)/.test(String(e && e.message))) { alvo = Math.max(min, Math.floor(alvo / 2)); boas = 0; } erro(e); }
+      finally { ativos--; andar(); }
+    });
+    andar();
+  });
+  f.via = fetcher.via; f.alvo = () => alvo; f.ativos = () => ativos;
+  return f;
+}
 export const guardar = (fetcher, onChamada) => async url => {
   if (!leituraPermitida(url)) throw new Error('leitura não permitida: ' + String(url).slice(0, 80));
   const t0 = Date.now();
@@ -144,7 +162,7 @@ export async function listarClientes(fetcher, { pausa, onLista } = {}) {
 const URL_PROJETOS = id => `${API}storage/v1/projects?primaryAssociationId=${encodeURIComponent(id)}&primaryAssociationType=Client&getScheduleItems=true`;
 const URL_FILHOS = (tipo, id, de) => `${API}storage/v2/${tipo}/${encodeURIComponent(id)}/children?from=${de}&pageSize=100&sort=name:asc&containersOnly=false&trashed=false&countDocuments=false&calculateLocks=true`;
 
-export async function filhosDe(fetcher, tipo, id, pausa) {
+export async function filhosDe(fetcher, tipo, id, pausa) {      // pausa só no modo suave; no rápido o limite geral cuida do ritmo
   const out = [];
   for (let de = 1, n = 0; n < 20; n++) {
     const d = await fetcher(URL_FILHOS(tipo, id, de)), lote = listaDe(d);
@@ -208,7 +226,8 @@ const dia = v => { const s = String(v || ''); return /^\d{4}-\d{2}-\d{2}/.test(s
  * Lê as pastas e arquivos de UMA empresa. Os "projetos" do cliente são os departamentos (Pessoal, Fiscal...) e viram a pasta de
  * primeiro nível. Se houver um projeto só e o nome dele não for um departamento conhecido, a raiz é esse projeto (desenho antigo).
  */
-export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMax = 3000, conhecidas = [], soConhecidas = false, descer } = {}) {
+export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMax = 3000, conhecidas = [], soConhecidas = false, descer, rapido = false } = {}) {
+  if (rapido) pausa = null;                                     // modo rápido: sem pausas; o limite geral de chamadas (limitado) protege o Onvio
   let projetos = [];
   for (const id of cliente.ids) {
     projetos = listaDe(await fetcher(URL_PROJETOS(id))).filter(p => p && p.id != null);
@@ -223,13 +242,18 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   const fila = projetos.filter(desce).map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
   const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema' }));
   const _amostra = { pasta: null, doc: null }; let truncado = false, itens = 0;
+  const NOS_POR_VEZ = rapido ? 4 : 1;                           // pastas da mesma empresa lidas juntas (o resultado é o mesmo, só chega antes)
   while (fila.length) {
-    const no = fila.shift();
+    const lote = fila.splice(0, NOS_POR_VEZ);
     if (pausa) await pausa(120);
-    for (const x of await filhosDe(fetcher, no.tipo, no.id, pausa)) {
-      if (++itens > itensMax) { truncado = true; break; }
-      if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
-      else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
+    const lidos = await Promise.all(lote.map(async no => ({ no, filhos: await filhosDe(fetcher, no.tipo, no.id, pausa) })));
+    for (const { no, filhos } of lidos) {
+      for (const x of filhos) {
+        if (++itens > itensMax) { truncado = true; break; }
+        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
+        else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
+      }
+      if (itens > itensMax) break;
     }
     if (itens > itensMax) break;
   }
@@ -241,7 +265,7 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
  * onProgresso({feito,total}); onParcial({docs, qualidade}) a cada `cadaParcialMs` com o que já foi lido (docs já classificados, cópia);
  * parar() => true interrompe. Erro de sessão (AuthError) interrompe tudo; falha numa empresa não derruba as outras.
  */
-export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer, paralelo = 1, prioridade, onParcial, cadaParcialMs = 2500 } = {}) {
+export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer, paralelo = 1, prioridade, onParcial, cadaParcialMs = 2500, rapido = false } = {}) {
   let alvo = clientes.filter(c => !c.inativo && c.ids.length);
   if (prioridade && prioridade.size) alvo = [...alvo.filter(c => prioridade.has(c.cnpj)), ...alvo.filter(c => !prioridade.has(c.cnpj))];
   alvo = alvo.slice(0, limite > 0 ? limite : undefined);
@@ -253,7 +277,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       if (parar && parar()) { q.interrompida = true; return; }
       const c = alvo[i++]; if (!c) return;
       try {
-        const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer });
+        const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido });
         docs.push(...r.docs); q.lidas++;
         if (!r.projetos) q.semProjeto++;
         if (r.truncado) q.truncadas++;
@@ -266,7 +290,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
         const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia);
         await onParcial({ docs: copia, qualidade: { ...resumo(copia), autores: aut } });
       }
-      if (pausa) await pausa(paralelo > 1 ? 60 : 150);
+      if (pausa && !rapido) await pausa(paralelo > 1 ? 60 : 150);
     }
   }
   await Promise.all(Array.from({ length: Math.max(1, paralelo) }, trabalhador));
