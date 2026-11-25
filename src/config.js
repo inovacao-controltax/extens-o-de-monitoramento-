@@ -6,6 +6,7 @@ export const DEFAULT_CONFIG = {
   filePattern: '^\\d{4}-\\d{2} - [A-Za-z0-9ÇÃÕÁÉÍÓÚ ]+ - .+\\.(pdf|xlsx?|xml|ofx|csv|zip)$',
   allowedFolders: ['Contábil', 'Fiscal', 'Pessoal', 'Financeiro', 'Comunicados'],
   diasSemEnvio: 30,
+  autoColetar: false, // coletar sozinho ao abrir por cima do Onvio, se os dados têm mais de 6 h
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 
