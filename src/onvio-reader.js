@@ -30,21 +30,36 @@ export function leituraPermitida(url) {
 /** Nome da rota sem ids e sem valores (para o relatório): storage/v2/Folders/{id}/children. */
 export const rotulo = url => { try { return new URL(url).pathname.slice(5).replace(/\/[^/]+(?=\/children$)/, '/{id}').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}/gi, '{id}') + (new URL(url).searchParams.has('primaryAssociationId') ? '?primaryAssociationId={id}' : ''); } catch (e) { return String(url).slice(0, 60); } };
 /**
- * Limite GERAL de chamadas ao mesmo tempo (para a leitura ser rápida sem sobrecarregar o Onvio). Começa em `max`; se o Onvio responder
- * 429/502/503/504, cai pela metade (mínimo `min`) e volta a subir de um em um depois de 25 respostas boas.
+ * Limite GERAL de chamadas ao mesmo tempo, que se ajusta sozinho (para a leitura ser o mais rápida possível sem sobrecarregar o Onvio):
+ *  - começa BAIXO (`inicio`, para medir a resposta do Onvio sem congestionar) e SOBE de um em um enquanto o tempo de resposta continua perto do melhor já visto;
+ *  - DESCE de um em um quando a resposta fica bem mais lenta (o Onvio está saturando);
+ *  - cai pela metade (mínimo `min`) em 429/502/503/504 e só volta a subir depois de respostas boas.
+ * `estatisticas()` devolve o que aconteceu (para saber onde está o limite real).
  */
-export function limitado(fetcher, { max = 10, min = 2 } = {}) {
-  let alvo = max, ativos = 0, boas = 0; const fila = [];
+export function limitado(fetcher, { max = 32, min = 2, inicio = 6 } = {}) {
+  let alvo = Math.min(inicio, max), ativos = 0, boas = 0, n = 0, ewma = 0, melhor = Infinity, pico = alvo, recuos = 0, lentos = 0, soma = 0;
+  const fila = [];
   const andar = () => { while (ativos < alvo && fila.length) { ativos++; fila.shift()(); } };
+  const medir = ms => {
+    ms = Math.max(1, ms);
+    n++; soma += ms; ewma = ewma ? ewma * 0.9 + ms * 0.1 : ms;
+    if (n >= 20) melhor = Math.min(melhor, ewma);
+    if (n >= 40 && n % 10 === 0) {
+      if (ewma > melhor * 1.8 && alvo > min) { alvo--; lentos++; boas = 0; }                        // saturando: reduz um
+      else if (ewma < melhor * 1.3 && alvo < max && boas >= 10) { alvo++; pico = Math.max(pico, alvo); boas = 0; }   // folga: sobe um
+    }
+  };
   const f = url => new Promise((ok, erro) => {
     fila.push(async () => {
-      try { const r = await fetcher(url); if (++boas >= 25 && alvo < max) { alvo++; boas = 0; } ok(r); }
-      catch (e) { if (/HTTP (429|502|503|504)/.test(String(e && e.message))) { alvo = Math.max(min, Math.floor(alvo / 2)); boas = 0; } erro(e); }
+      const t0 = Date.now();
+      try { const r = await fetcher(url); boas++; medir(Date.now() - t0); ok(r); }
+      catch (e) { if (/HTTP (429|502|503|504)/.test(String(e && e.message))) { alvo = Math.max(min, Math.floor(alvo / 2)); boas = 0; recuos++; } erro(e); }
       finally { ativos--; andar(); }
     });
     andar();
   });
   f.via = fetcher.via; f.alvo = () => alvo; f.ativos = () => ativos;
+  f.estatisticas = () => ({ chamadas: n, latenciaMediaMs: n ? Math.round(soma / n) : 0, limiteFinal: alvo, limitePico: pico, recuos, reducoesPorLentidao: lentos });
   return f;
 }
 export const guardar = (fetcher, onChamada) => async url => {
