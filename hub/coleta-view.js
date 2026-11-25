@@ -132,10 +132,12 @@ export async function renderColeta(root, { toast, onChanged }) {
     $('#testarN').disabled = true; $('#rel').textContent = 'Lendo as notificações da equipe do escritório…'; $('#copiar').disabled = true;
     try {
       const log = [], f = await criarFetcher({ onChamada: c => log.push(c) });
-      const rep = await diagnosticarNotificacoes(f, { pausa, chamadas: log, via: f.via });
-      $('#rel').textContent = textoRelatorioNotificacoes(rep); $('#copiar').disabled = false;
-      const c1 = await loadConfig(), lido = await lerNotificacoesEscritorio(f, { pausa, campos: { email: c1.notifCampoEmail, sistema: c1.notifCampoSistema } });   // guarda para a aba Notificações (só nome, estado e sim/não)
+      const c1 = await loadConfig();
+      const lido = await lerNotificacoesEscritorio(f, { pausa, campos: { email: c1.notifCampoEmail, sistema: c1.notifCampoSistema } });   // guarda ANTES do relatório, para a aba Notificações já estar preenchida
       await chrome.storage.local.set({ 'monitor-notificacoes': { fonte: 'onvio', em: Date.now(), total: lido.total, campos: lido.campos, itens: lido.itens } });
+      $('#rel').textContent = 'Guardado. Montando o relatório…';
+      const rep = await diagnosticarNotificacoes(f, { pausa, chamadas: log, via: f.via });
+      $('#rel').textContent = textoRelatorioNotificacoes(rep) + `\n\nGuardado para a aba Notificações: ${lido.itens.length} funcionários (${lido.itens.filter(i => i.estado === 'configurado').length} com configuração salva).`; $('#copiar').disabled = false;
       toast(rep.passos.every(p => p.ok) ? 'Notificações: leitura funcionando' : 'Notificações: veja o relatório', rep.passos.every(p => p.ok) ? 'ok' : 'warn');
     } catch (e) { const m = e instanceof AuthError ? e.message : `Erro na leitura: ${e.message}`; $('#rel').textContent = m; toast(m, 'warn'); }
     finally { $('#testarN').disabled = false; aba(); }
