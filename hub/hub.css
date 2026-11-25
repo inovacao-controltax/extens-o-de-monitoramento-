@@ -190,3 +190,10 @@ td.r,th.r{text-align:right;}td .emp{font-weight:600;}td.num{color:var(--ink-2);}
 .sub-h{font-size:var(--fs-control);font-weight:600;color:var(--ink-2);margin:var(--sp-4) 0 var(--sp-2);}
 #discres .tbl-wrap{margin-top:var(--sp-3);border:1px solid var(--rule);border-radius:var(--r);}
 .chip-x .muted{font-size:var(--fs-meta);}
+
+/* Coleta (Fase 4c) */
+.rel{margin:0 0 var(--sp-3);padding:var(--sp-3);background:var(--surface-2);border:1px solid var(--rule);border-radius:var(--r);font:var(--fs-control)/1.6 var(--font-num);white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto;}
+progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-deep);}
+.kv{list-style:none;margin:0 0 var(--sp-3);padding:0;}
+.kv li{display:flex;justify-content:space-between;gap:var(--sp-3);padding:6px 0;border-bottom:1px solid var(--rule);font-size:var(--fs-control);}
+.kv li:last-child{border-bottom:0;}.kv span{color:var(--ink-2);}

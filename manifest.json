@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Hub de Monitoramento do Portal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Painel para acompanhar o uso do Portal do Cliente: nomenclatura, pastas, clientes sem envio e notificações.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "unlimitedStorage", "scripting", "tabs"],
+  "host_permissions": ["https://onvio.com.br/*"],
   "background": { "service_worker": "src/background.js" },
   "action": { "default_title": "Abrir Hub de Monitoramento" }
 }
