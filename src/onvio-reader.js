@@ -472,7 +472,7 @@ export async function diagnosticarNotificacoes(fetcher, { amostra = Infinity, pa
 /** Acha, entre os campos verdadeiro/falso, os de "nova Solicitação de Serviço" por e-mail e por sistema (ou usa os caminhos informados). */
 export function detectarCamposNovaSolicitacao(caminhos, { email = '', sistema = '' } = {}) {
   const nomes = caminhos.map(([c]) => c);
-  const nova = c => /(nova|new|novo).*(solicit|request|servi)|(solicit|request).*(nova|new)/i.test(c);
+  const nova = c => /(nova|new|novo).*(solicit|request|servi|ticket)|(solicit|request|ticket).*(nova|new)/i.test(c);
   const ehMail = c => /e-?mail/i.test(c), ehSis = c => /(sistema|system|inapp|in_app|app|push|portal)/i.test(c);
   const e = email && nomes.includes(email) ? email : nomes.find(c => nova(c) && ehMail(c)) || '';
   const si = sistema && nomes.includes(sistema) ? sistema : nomes.find(c => nova(c) && ehSis(c) && !ehMail(c)) || '';
