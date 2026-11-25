@@ -85,8 +85,9 @@ export async function rodarAgora({ onEstado } = {}) {
     if (!completa && !rapida && !notif) return;
     rodando = true;
     if (!(await pegarTrava())) { rodando = false; return; }
+    // as notificações são poucas chamadas: vêm ANTES da leitura longa das empresas, para a aba não ficar vazia por minutos
+    if (notif) { try { await lerNotifs(cfg); } catch (e) { if (e instanceof AuthError) throw e; /* só as notificações falharam */ } }
     if (completa) await leituraCompleta(cfg, avisa); else if (rapida) await leituraRapida(cfg, snap, avisa);
-    if (notif || completa) { try { await lerNotifs(cfg); } catch (e) { if (e instanceof AuthError) throw e; /* só as notificações falharam */ } }
   } catch (e) {
     avisa({ estado: e instanceof AuthError ? 'sem_sessao' : 'erro', fimEm: Date.now(), msg: String(e && e.message || e).slice(0, 200) });
   } finally { rodando = false; await soltar(); }

@@ -1,6 +1,6 @@
 import { SAMPLE } from '../src/mock.js';
 import { loadConfig, formatCnpj } from '../src/config.js';
-import { analyze } from '../src/rules.js';
+import { analyze, checkNotificacoesOnvio } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot } from '../src/snapshot.js';
@@ -65,7 +65,7 @@ const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
 const source = () => (real() ? { docs: real().docs, notif: nsnap, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
-const recompute = () => { R = analyze(source(), cfg); marcarIcone(); };
+const recompute = () => { R = analyze(source(), cfg); if (nsnap) R.notificacoes = checkNotificacoesOnvio(nsnap, cfg); marcarIcone(); };   // notificações lidas do Onvio valem mesmo sem a coleta das empresas
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
   try { const n = real() ? Object.values(R).reduce((s, l) => s + l.length, 0) : 0; chrome.action.setBadgeText({ text: n ? String(n) : '' }); chrome.action.setBadgeBackgroundColor({ color: '#C2000C' }); } catch (e) { /* fora da extensão */ }
@@ -141,7 +141,7 @@ function renderNav() {
 function tableHtml(k) {
   const t = TABS[k], rows = data(k);
   if (lendoSemDados()) return '<div class="empty"><b>Lendo o Onvio…</b><p>Os resultados aparecem aqui assim que as primeiras empresas forem lidas.</p></div>';
-  if (!rows.length && real() && k === 'notificacoes') {
+  if (!rows.length && (real() || nsnap) && k === 'notificacoes') {
     if (!nsnap) return '<div class="empty"><b>Notificações ainda não lidas.</b><p>A leitura é automática com o Onvio aberto (visão do escritório). Ou use "Testar leitura das notificações" em Coleta.</p></div>';
     const padrao = nsnap.itens.filter(u => u.estado === 'padrao').length, conf = nsnap.itens.filter(u => u.estado === 'configurado').length;
     return `<div class="empty"><b>Ninguém está sem aviso de nova solicitação.</b><p>${conf} funcionário(s) têm configuração salva e todos recebem o aviso (e-mail ou sistema). Outros ${padrao} nunca tiveram a configuração alterada: valem os avisos padrão do Onvio, que são ligados, e por isso não entram aqui.</p></div>`;
