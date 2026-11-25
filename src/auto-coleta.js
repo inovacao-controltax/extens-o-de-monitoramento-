@@ -7,6 +7,7 @@ import { guardar, coletar, listarClientes, perfilDaSessao, fetcherComFallback, p
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
 import { loadSnapshot, saveSnapshot } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
+import { lerEnviosPorSolicitacao } from './solicitacoes.js';
 
 export const CHAVE_ESTADO = 'monitor-coleta-estado', CHAVE_TRAVA = 'monitor-coleta-trava', CHAVE_CLIENTES = 'monitor-clientes';
 export const CHAVE_NOTIF = 'monitor-notificacoes';
@@ -105,6 +106,40 @@ export async function rodarTreinados() {
     await puxarTreinados();
   } catch (x) { /* só os treinados falharam */ }
 }
+/**
+ * Último uso do portal pelas Solicitações de Serviço, só das empresas treinadas (poucas): a cada hora, ou quando a lista de treinadas muda.
+ * Falhar aqui não derruba o resto. Guarda só CNPJ -> data (monitor-solicitacoes); recuo de 10 min depois de uma falha.
+ */
+export const CHAVE_SOLIC = 'monitor-solicitacoes', CHAVE_SOLIC_ESTADO = 'monitor-solicitacoes-estado';
+let lendoSolic = false;
+export const assinaturaTreinadas = trained => (trained || []).map(t => t.cnpj).sort().join(',');
+export async function rodarSolicitacoes() {
+  if (lendoSolic) return;
+  try {
+    const cfg = await loadConfig();
+    if (cfg.autoLer === false || !(cfg.trained || []).length) return;
+    const g = (await st().get(CHAVE_SOLIC))[CHAVE_SOLIC], e = (await st().get(CHAVE_SOLIC_ESTADO))[CHAVE_SOLIC_ESTADO], agora = Date.now();
+    const mesmas = g && g.assinatura === assinaturaTreinadas(cfg.trained);
+    if (mesmas && agora - (g.em || 0) < 3600 * 1000) return;
+    if (e && e.estado === 'lendo' && agora - e.em < 5 * 60 * 1000) return;
+    if (e && e.estado !== 'lendo' && e.estado !== 'ok' && agora - e.em < 10 * 60 * 1000) return;
+    lendoSolic = true;
+    await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'lendo', em: agora } });
+    const { f } = criarFetcher();
+    try { if (perfilDaSessao(await f(API + 'security/v1/session-and-bindings')) === 'cliente') { await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'cliente', em: Date.now() } }); return; } } catch (x) { /* só informativa */ }
+    const guardado = (await st().get(CHAVE_CLIENTES))[CHAVE_CLIENTES];
+    const clientes = guardado && guardado.clientes ? guardado.clientes : (await listarClientes(f, { pausa })).clientes;
+    const porCnpj = new Map(clientes.filter(c => c.cnpj && c.codigo).map(c => [c.cnpj, String(c.codigo)]));
+    const codCnpj = {}; for (const t of cfg.trained) { const cod = porCnpj.get(t.cnpj); if (cod) codCnpj[cod] = t.cnpj; }
+    const desde = new Date(agora - (cfg.diasSemEnvio || 30) * 864e5).toISOString().slice(0, 10);
+    const r = await lerEnviosPorSolicitacao(f, Object.keys(codCnpj), { desde, pausa });
+    const porCnpjDia = {}; for (const [cod, dia] of Object.entries(r.porCodigo)) porCnpjDia[codCnpj[cod]] = dia;
+    await st().set({ [CHAVE_SOLIC]: { em: Date.now(), assinatura: assinaturaTreinadas(cfg.trained), desde, porCnpj: porCnpjDia, lidas: r.lidas, tramites: r.tramites, limitada: r.limitada, semCodigo: cfg.trained.length - Object.keys(codCnpj).length } });
+    await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'ok', em: Date.now() } });
+  } catch (x) {
+    try { await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: x instanceof AuthError ? 'sem_sessao' : 'erro', em: Date.now(), msg: String(x && x.message || x).slice(0, 200) } }); } catch (y) { /* nada */ }
+  } finally { lendoSolic = false; }
+}
 export const precisaNotifs = (g, cfg, agora = Date.now()) => !g || agora - (g.em || 0) >= (cfg.horasAuto || 6) * 3600 * 1000;
 
 export async function rodarAgora({ onEstado } = {}) {
@@ -125,6 +160,6 @@ export async function rodarAgora({ onEstado } = {}) {
 
 /** Liga a leitura: começa 2 s depois de a página abrir e confere a cada minuto se há o que ler (completa a cada `horasAuto`, rápida a cada 10 min). */
 export function iniciar({ onEstado, atrasoMs = 2000, cadaMs = 60 * 1000 } = {}) {
-  setTimeout(() => { rodarNotifs(); rodarTreinados(); rodarAgora({ onEstado }); }, atrasoMs);
-  setInterval(() => { rodarNotifs(); rodarTreinados(); rodarAgora({ onEstado }); }, cadaMs);
+  setTimeout(() => { rodarNotifs(); rodarTreinados(); rodarSolicitacoes(); rodarAgora({ onEstado }); }, atrasoMs);
+  setInterval(() => { rodarNotifs(); rodarTreinados(); rodarSolicitacoes(); rodarAgora({ onEstado }); }, cadaMs);
 }

@@ -41,7 +41,7 @@ const cenario = () => ({
 test('lista fechada: só GET nas rotas mapeadas do onvio.com.br', () => {
   assert.equal(leituraPermitida(API + 'storage/v2/Folders/abc/children?from=1'), true);
   assert.equal(leituraPermitida(API + 'storage/v1/projects?primaryAssociationId=1'), true);
-  assert.equal(leituraPermitida(API + 'service-requesting/v1/tickets/generic'), false);
+  assert.equal(leituraPermitida(API + 'security/v1/users'), false);
   assert.equal(leituraPermitida(API + 'storage/v1/folders/abc'), false);
   assert.equal(leituraPermitida('https://evil.com/api/storage/v1/projects'), false);
   assert.equal(leituraPermitida('https://onvio.com.br.evil.com/api/cnd/v1/clients'), false);
@@ -50,7 +50,7 @@ test('lista fechada: só GET nas rotas mapeadas do onvio.com.br', () => {
 test('guardar recusa antes de chamar o fetcher', async () => {
   let chamou = false;
   const g = guardar(async () => { chamou = true; return {}; });
-  await assert.rejects(() => g(API + 'service-requesting/v1/tickets/generic'), /não permitida/);
+  await assert.rejects(() => g(API + 'security/v1/users'), /não permitida/);
   assert.equal(chamou, false);
 });
 test('perfil: escritório, cliente e sem sinal', () => {
@@ -431,4 +431,14 @@ test('erro de sessão na leitura da equipe interrompe tudo', async () => {
 test('formato real do Onvio: newTicketEmail/newTicketSystem são a nova solicitação; newTopic* (trâmite) não', () => {
   const c = ['completedTopicEmail', 'newTicketEmail', 'newTicketSystem', 'newTopicEmail', 'newTopicSystem', 'newTopicEmailAllContacts', 'forwardedTopicEmail'].map(x => [x]);
   assert.deepEqual(detectarCamposNovaSolicitacao(c), { email: 'newTicketEmail', sistema: 'newTicketSystem' });
+});
+
+test('lista fechada: Solicitações de Serviço só as 10 listas e os trâmites; detalhe, anexos e outras rotas continuam fora', () => {
+  const id = 'a'.repeat(32);
+  for (const r of ['service-requesting/v1/tickets/generic?itemsPerPage=200', 'br-payroll-sr/v1/payroll-entries', 'br-payroll-sr/v1/employee-leave', 'br-payroll-sr/v1/interns-registrations',
+    `service-requesting/v1/tickets/${id}/topics?expand=all`, `br-payroll-sr/v1/tickets/${id}/topics`, `br-payroll-sr/v1/employees-registrations/${id}/topics`, `br-payroll-sr/v1/payroll-entries/${id}/topics`])
+    assert.equal(leituraPermitida(API + r), true, r);
+  for (const r of [`service-requesting/v1/tickets/generic/${id}`, `service-requesting/v1/tickets/${id}/topics/${id}/attachments/${id}`, `service-requesting/v1/tickets/${id}`,
+    'br-payroll-sr/v1/payroll-entries/salary', 'br-payroll-sr/v1/anything', `br-payroll-sr/v2/payroll-entries/${id}`])
+    assert.equal(leituraPermitida(API + r), false, r);
 });
