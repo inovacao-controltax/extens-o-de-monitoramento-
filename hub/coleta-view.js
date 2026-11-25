@@ -24,7 +24,7 @@ export async function renderColeta(root, { toast, onChanged }) {
     <section class="card"><h2>Notificações do escritório (Onvio)</h2>
       <p class="note-txt">O liga/desliga de notificação de cada funcionário fica no Onvio: Configurações › Notificações dos usuários do escritório (por exemplo "A cada nova Solicitação de Serviço › via e-mail / via sistema"). Para a extensão ler isso, ela precisa aprender quais chamadas essa tela faz.</p>
       <ol class="passos"><li>Clique em <b>Aprender chamadas do Onvio (2 h)</b>.</li><li>No Onvio, abra Configurações › Notificações do escritório, depois o lápis de <b>um</b> funcionário (sem salvar nada) e role a tela até o fim.</li><li>Volte aqui e clique em <b>Ver chamadas observadas do Onvio</b>.</li></ol>
-      <label class="check"><input type="checkbox" id="notifPadrao"> Contar também quem <b>nunca teve a configuração alterada</b> (padrão do Onvio). Deixe desmarcado: o padrão é aviso ligado</label>
+      <label class="check"><input type="checkbox" id="notifPadrao"> Contar também quem <b>nunca teve a configuração alterada</b> (no Onvio aparece com os avisos de nova solicitação desmarcados)</label>
       <div class="row"><button class="btn btn-primary" id="testarN" type="button">Testar leitura das notificações</button><button class="btn" id="aprenderO" type="button">Aprender chamadas do Onvio (2 h)</button><button class="btn btn-ghost" id="verObsO" type="button">Ver chamadas observadas do Onvio</button></div></section>
     <section class="card"><h2>Gestta · notificações</h2>
       <p class="note-txt">Lê os funcionários do Gestta pela aba do Gestta que você já abriu (só leitura) e marca quem está com o aviso de tarefa nova desligado. O token do Gestta nunca sai da página.</p>

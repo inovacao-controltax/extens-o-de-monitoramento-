@@ -32,5 +32,5 @@ O Gestta **não** tem essa configuração por funcionário (ver `docs/gestta-map
 ## Monitor (0.8.0)
 - Leitura automática com o Onvio aberto (a cada `horasAuto`, 6 h): toda a equipe ativa (`br-payroll-sr/v1/employees`), uma chamada `GET service-requesting/v1/contact-notifications/{contactId}` por pessoa, 4 de cada vez. Guarda em `monitor-notificacoes` só nome, estado e sim/não (nunca e-mail nem id).
 - **200** = configurado: o monitor acha, entre os campos verdadeiro/falso, "nova Solicitação de Serviço" por e-mail e por sistema (ou usa `notifCampoEmail`/`notifCampoSistema`). Desativado = os dois desligados.
-- **404** = sem configuração salva (padrão do Onvio). Só conta como desativado se Coleta › "sem configuração salva conta como desativada" estiver marcado (`notifPadraoDesligado`, desligado de fábrica). Se o Onvio mostra "nova solicitação" desmarcado por padrão, marque a opção.
+- **404** = sem configuração salva (padrão do Onvio). Conta como desativado (`notifPadraoDesligado`, ligado de fábrica desde a 0.8.7): confirmado em 25/11/2026 que quem nunca teve a configuração salva aparece com "nova Solicitação" desmarcada no Onvio. Dá para desligar em Coleta.
 - Formato real (conferido em 25/11/2026): `newTicketEmail` e `newTicketSystem` = nova Solicitação de Serviço; `newTopic*` = trâmite. 5 de 104 têm configuração salva (200), os demais 404.
