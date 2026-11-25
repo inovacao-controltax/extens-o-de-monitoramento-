@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { precisaRapida, mesclarEmpresas, classificarAutores, fetcherComFallback, precisaColetar, resumirChamadas, rotulo, lerResposta, API, leituraPermitida, guardar, perfilDaSessao, listarClientes, filhosDe, origemDoDocumento, lerEmpresa, coletar, diagnosticar, textoDoRelatorio, camposDe, AuthError } from '../src/onvio-reader.js';
+import { listarEquipe, caminhosBooleanos, diagnosticarNotificacoes, textoRelatorioNotificacoes, precisaRapida, mesclarEmpresas, classificarAutores, fetcherComFallback, precisaColetar, resumirChamadas, rotulo, lerResposta, API, leituraPermitida, guardar, perfilDaSessao, listarClientes, filhosDe, origemDoDocumento, lerEmpresa, coletar, diagnosticar, textoDoRelatorio, camposDe, AuthError } from '../src/onvio-reader.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import { analyze } from '../src/rules.js';
 
@@ -338,4 +338,57 @@ test('releitura rápida: só com dados recentes, treinadas cadastradas e 10 min 
 test('mesclar: troca só as linhas das empresas relidas', () => {
   const antigos = [{ cnpj: 'A', arquivo: 'velho.pdf' }, { cnpj: 'B', arquivo: 'b.pdf' }, { cnpj: 'A', arquivo: '' }];
   assert.deepEqual(mesclarEmpresas(antigos, [{ cnpj: 'A', arquivo: 'novo.pdf' }], ['A']), [{ cnpj: 'B', arquivo: 'b.pdf' }, { cnpj: 'A', arquivo: 'novo.pdf' }]);
+});
+
+// ---------- Fase 5b: notificações dos funcionários do escritório ----------
+const h32 = n => n.toString(16).padStart(32, '0');
+function fakeNotif({ n = 30, comConfig = 12, usaId = false } = {}) {
+  const equipe = Array.from({ length: n }, (_, i) => ({ id: h32(i + 1), contactId: h32(1000 + i), name: 'Pessoa ' + i }));
+  const f = async url => {
+    const u = new URL(url), p = u.pathname.slice(5);
+    if (p === 'br-payroll-sr/v1/employees') return { items: equipe, totalItems: n, totalPages: 1, pageIndex: 0 };
+    const m = /^service-requesting\/v1\/contact-notifications\/([0-9a-f]{32})$/.exec(p);
+    if (m) {
+      const i = usaId ? parseInt(m[1], 16) - 1 : parseInt(m[1], 16) - 1000;
+      if (i < 0 || i >= comConfig) throw new Error('HTTP 404');
+      return { newServiceRequest: { email: i % 2 === 0, system: false }, tramite: { email: true, system: false, scope: 'OnlyUser' }, responsavel: { email: true } };
+    }
+    throw new Error('HTTP 404');
+  };
+  return f;
+}
+test('lista fechada: contact-notifications do service-requesting e a equipe; BOX-e e outras rotas continuam fora', () => {
+  assert.equal(leituraPermitida(API + `service-requesting/v1/contact-notifications/${h32(5)}`), true);
+  assert.equal(leituraPermitida(API + 'br-payroll-sr/v1/employees?itemsPerPage=500&pageIndex=0'), true);
+  assert.equal(leituraPermitida(API + `boxe/v1/contact-notifications/${h32(5)}`), false);
+  assert.equal(leituraPermitida(API + `service-requesting/v1/contact-notifications/${h32(5)}/x`), false);
+  assert.equal(leituraPermitida(API + 'br-payroll-sr/v1/employees/123/salary'), false);
+  assert.equal(rotulo(API + `service-requesting/v1/contact-notifications/${h32(77)}`), 'service-requesting/v1/contact-notifications/{id}');
+});
+test('equipe: uma página grande, sem repetir', async () => {
+  const eq = await listarEquipe(fakeNotif({ n: 107 }));
+  assert.equal(eq.length, 107); assert.equal(new Set(eq.map(x => x.id)).size, 107);
+  assert.deepEqual(Object.keys(eq[0]), ['id', 'contactId', 'nome']);
+});
+test('booleanos: só caminhos', () => assert.deepEqual(caminhosBooleanos({ a: { b: true, c: 'x' }, d: false, e: [true] }), [['a.b', true], ['d', false]]));
+test('sondagem das notificações: códigos, nomes de campos e contagens, sem nome nem id de pessoa', async () => {
+  const log = [];
+  const g = guardar(fakeNotif({ n: 30, comConfig: 12 }), c => log.push(c));
+  const rep = await diagnosticarNotificacoes(g, { amostra: 30, chamadas: log, via: 'teste' });
+  assert.deepEqual(rep.amostra.status, { 200: 12, 404: 18 }); assert.equal(rep.amostra.comConfiguracao, 12);
+  assert.equal(rep.identificador, 'contactId'); assert.equal(rep.equipe.total, 30);
+  assert.ok(rep.campos.includes('newServiceRequest.email:boolean'));
+  assert.equal(rep.booleanos['newServiceRequest.email'], 'sim 6 · não 6'); assert.equal(rep.booleanos['newServiceRequest.system'], 'sim 0 · não 12');
+  assert.ok(rep.avisos.some(a => /404/.test(a)));
+  const t = textoRelatorioNotificacoes(rep);
+  assert.ok(!/Pessoa \d|OnlyUser/.test(t) && !/[0-9a-f]{32}/.test(t), 'sem nomes, valores nem identificadores');
+  assert.match(t, /newServiceRequest\.email: sim 6 · não 6/); assert.match(t, /contact-notifications\/\{id\}/);
+});
+test('sondagem: descobre que a rota usa o id do funcionário (não o contactId); tudo 404 avisa', async () => {
+  const rep = await diagnosticarNotificacoes(fakeNotif({ n: 10, comConfig: 10, usaId: true }), { amostra: 10 });
+  assert.equal(rep.identificador, 'id'); assert.equal(rep.amostra.comConfiguracao, 10);
+  const rep2 = await diagnosticarNotificacoes(fakeNotif({ n: 10, comConfig: 0 }), { amostra: 10 });
+  assert.equal(rep2.amostra.comConfiguracao, 0); assert.ok(rep2.avisos.some(a => /404 para todos/.test(a)));
+  const rep3 = await diagnosticarNotificacoes(async () => { throw new Error('HTTP 500'); });
+  assert.equal(rep3.passos[0].ok, false);
 });

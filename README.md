@@ -50,3 +50,5 @@ Com uma aba do **Gestta** aberta e logada, a extensão lê os funcionários sozi
 ## Notificações do escritório (Onvio)
 O liga/desliga de notificação de cada funcionário fica no **Onvio** (Configurações › Notificações dos usuários do escritório): "A cada nova Solicitação de Serviço › via e-mail / via sistema". Detalhes em `docs/onvio-notificacoes.md`.
 Para a extensão aprender a ler essa tela: **Coleta do Onvio › Aprender chamadas do Onvio (2 h)**, abra a tela e o lápis de um funcionário (sem salvar), e use **Ver chamadas observadas do Onvio**. O modo aprender registra só método, rota sem ids e **nomes** de campos (nunca valores, token ou cabeçalhos), só roda enquanto ligado e não toca em `fetch`/XHR da página antes disso.
+
+**Testar leitura das notificações** (Coleta do Onvio › Notificações do escritório): lê a equipe ativa e, de uma amostra, a configuração de notificação de cada funcionário (só GET, 2 rotas observadas no portal) e mostra códigos, nomes de campos e contagens sim/não por campo, nunca valores por pessoa. É o passo que descobre o formato da resposta para o monitor.

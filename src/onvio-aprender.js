@@ -4,7 +4,7 @@
 (() => {
   if (window.__ctmOnvioAprender) return; window.__ctmOnvioAprender = true;
   const ligado = () => document.documentElement.getAttribute('data-ctm-aprender') === '1';
-  const rota = u => u.pathname.replace(/^\/api\//, '').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{id}').replace(/[0-9a-f]{24}/gi, '{id}').replace(/\d{4,}/g, '{n}') + (u.search ? '?' + [...u.searchParams.keys()].join('&') : '');
+  const rota = u => u.pathname.replace(/^\/api\//, '').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}|[0-9a-f]{24}/gi, '{id}').replace(/\d{4,}/g, '{n}') + (u.search ? '?' + [...u.searchParams.keys()].join('&') : '');
   const nomes = d => {
     const out = [];
     const ver = (o, cam, prof) => {

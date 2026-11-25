@@ -9,6 +9,8 @@ const PERMITIDAS = [
   /^br-payroll-sr\/v1\/clients$/i,
   /^cnd\/v1\/clients$/i,
   /^manifesto\/v1\/clients$/i,
+  /^br-payroll-sr\/v1\/employees$/i,                                    // equipe do escritório (ativos): id, contactId, nome
+  /^service-requesting\/v1\/contact-notifications\/[0-9a-f-]{8,40}$/i,     // configuração de notificação de um contato (observada no portal)
   /^storage\/v1\/projects$/i,
   /^storage\/v2\/(Projects|Folders)\/[^/]+\/children$/i,
 ];
@@ -22,7 +24,7 @@ export function leituraPermitida(url) {
   return PERMITIDAS.some(r => r.test(caminho));
 }
 /** Nome da rota sem ids e sem valores (para o relatório): storage/v2/Folders/{id}/children. */
-export const rotulo = url => { try { return new URL(url).pathname.slice(5).replace(/\/[^/]+(?=\/children$)/, '/{id}') + (new URL(url).searchParams.has('primaryAssociationId') ? '?primaryAssociationId={id}' : ''); } catch (e) { return String(url).slice(0, 60); } };
+export const rotulo = url => { try { return new URL(url).pathname.slice(5).replace(/\/[^/]+(?=\/children$)/, '/{id}').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}/gi, '{id}') + (new URL(url).searchParams.has('primaryAssociationId') ? '?primaryAssociationId={id}' : ''); } catch (e) { return String(url).slice(0, 60); } };
 export const guardar = (fetcher, onChamada) => async url => {
   if (!leituraPermitida(url)) throw new Error('leitura não permitida: ' + String(url).slice(0, 80));
   const t0 = Date.now();
@@ -401,4 +403,81 @@ export function precisaRapida({ snapshot, cfg, agora = Date.now(), minutos = 10 
 export function mesclarEmpresas(docsAntigos, docsNovos, cnpjsLidos) {
   const lidos = new Set(cnpjsLidos);
   return [...docsAntigos.filter(d => !lidos.has(d.cnpj)), ...docsNovos];
+}
+
+// ---------- Notificações dos funcionários do escritório (Fase 5b) ----------
+/** Equipe ativa do escritório. O pageIndex começa em 0 e página pequena repete/perde itens (mapa do Control Onvio): uma página grande. */
+export async function listarEquipe(fetcher) {
+  const por = new Map();
+  for (let pag = 0; pag < 5; pag++) {
+    const d = await fetcher(`${API}br-payroll-sr/v1/employees?itemsPerPage=500&pageIndex=${pag}`);
+    for (const x of listaDe(d)) if (x && x.id != null && !por.has(String(x.id))) por.set(String(x.id), { id: String(x.id), contactId: String(x.contactId || ''), nome: String(x.name || '') });
+    const total = Number(d && d.totalItems) || 0, paginas = Number(d && d.totalPages) || 1;
+    if (pag + 1 >= paginas || (total && por.size >= total)) break;
+  }
+  return [...por.values()];
+}
+/** Todos os campos verdadeiro/falso (até 4 níveis), só os caminhos. */
+export function caminhosBooleanos(o) {
+  const out = [];
+  const ver = (x, cam, prof) => {
+    if (!x || typeof x !== 'object' || Array.isArray(x) || prof > 4) return;
+    for (const [k, v] of Object.entries(x)) { const c = cam ? `${cam}.${k}` : k; if (typeof v === 'boolean') out.push([c, v]); else if (v && typeof v === 'object') ver(v, c, prof + 1); }
+  };
+  ver(o, '', 0); return out;
+}
+const codigoHttp = e => { const m = /HTTP (\d{3})/.exec(String(e && e.message)); return m ? Number(m[1]) : 0; };
+const URL_NOTIF = id => `${API}service-requesting/v1/contact-notifications/${encodeURIComponent(id)}`;
+
+/**
+ * Sonda a configuração de notificação de uma amostra de funcionários: códigos HTTP, nomes de campos e, por campo
+ * verdadeiro/falso, QUANTOS têm sim e não (contagens; nunca valores por pessoa).
+ */
+export async function diagnosticarNotificacoes(fetcher, { amostra = 25, pausa, chamadas = [], via = '' } = {}) {
+  const rep = { passos: [], avisos: [], via };
+  const passo = (nome, ok, detalhe = '') => rep.passos.push({ nome, ok, detalhe });
+  let equipe;
+  try { equipe = await listarEquipe(fetcher); } catch (e) { passo('Equipe do escritório', false, e.message); rep.chamadas = resumirChamadas(chamadas); return rep; }
+  passo('Equipe do escritório', equipe.length > 0, `${equipe.length} funcionários ativos`);
+  rep.equipe = { total: equipe.length, semContactId: equipe.filter(f => !f.contactId).length };
+  const alvo = equipe.slice(0, amostra);
+  // qual identificador a rota usa: o contactId ou o id do funcionário
+  let campoId = 'contactId';
+  if (alvo.length) {
+    const a = alvo[0], tenta = async id => { try { await fetcher(URL_NOTIF(id)); return 200; } catch (e) { return codigoHttp(e) || -1; } };
+    const sc = a.contactId ? await tenta(a.contactId) : -1;
+    if (sc !== 200 && a.id !== a.contactId) { const si = await tenta(a.id); if (si === 200) campoId = 'id'; }
+  }
+  rep.identificador = campoId;
+  const status = {}, nomes = new Set(), bool = new Map(); let lidos = 0;
+  for (const f of alvo) {
+    const id = campoId === 'id' ? f.id : f.contactId; if (!id) continue;
+    try {
+      const d = await fetcher(URL_NOTIF(id)); status[200] = (status[200] || 0) + 1; lidos++;
+      camposDe(d, 80).forEach(n => nomes.add(n));
+      for (const [c, v] of caminhosBooleanos(d)) { const g = bool.get(c) || { sim: 0, nao: 0 }; v ? g.sim++ : g.nao++; bool.set(c, g); }
+    } catch (e) { const c = codigoHttp(e) || -1; status[c] = (status[c] || 0) + 1; if (e instanceof AuthError) throw e; }
+    if (pausa) await pausa(120);
+  }
+  rep.amostra = { funcionarios: alvo.length, status, comConfiguracao: lidos };
+  rep.campos = [...nomes].slice(0, 80);
+  rep.booleanos = Object.fromEntries([...bool.entries()].map(([c, g]) => [c, `sim ${g.sim} · não ${g.nao}`]));
+  passo('Configuração de notificação (amostra)', lidos > 0 || Object.keys(status).length > 0, `status ${JSON.stringify(status)}`);
+  if (!lidos && status[404]) rep.avisos.push('A rota respondeu 404 para todos da amostra: provavelmente 404 significa "ainda sem configuração salva" (valores padrão) ou o identificador usado não é o certo. Abra a configuração de um funcionário que JÁ foi alterada e use o modo aprender para ver a resposta 200.');
+  else if (status[404]) rep.avisos.push(`${status[404]} de ${alvo.length} funcionários deram 404 (sem configuração salva?). O monitor precisa saber o que o Onvio considera "ligado" nesse caso (padrão).`);
+  rep.chamadas = resumirChamadas(chamadas);
+  return rep;
+}
+export function textoRelatorioNotificacoes(rep) {
+  const L = ['RELATÓRIO DAS NOTIFICAÇÕES DO ESCRITÓRIO (Onvio; sem nomes, e-mails nem valores por pessoa)', ''];
+  for (const p of rep.passos) L.push(`${p.ok ? '[ok]' : '[FALHOU]'} ${p.nome}: ${p.detalhe}`);
+  if (rep.via) L.push('', `Jeito de ler: ${rep.via}`);
+  if (rep.equipe) L.push(`Equipe: ${JSON.stringify(rep.equipe)}`);
+  if (rep.identificador) L.push(`Identificador que a rota aceita: ${rep.identificador}`);
+  if (rep.amostra) L.push(`Amostra: ${JSON.stringify(rep.amostra)}`);
+  if (rep.campos && rep.campos.length) L.push('', `Campos da resposta: ${rep.campos.join(', ')}`);
+  if (rep.booleanos && Object.keys(rep.booleanos).length) L.push('Campos verdadeiro/falso (contagem na amostra):', ...Object.entries(rep.booleanos).map(([c, v]) => `  ${c}: ${v}`));
+  if (rep.avisos.length) L.push('', ...rep.avisos.map(a => `AVISO: ${a}`));
+  if (rep.chamadas && rep.chamadas.length) L.push('', 'Chamadas ao Onvio (rota, quantas, falhas):', ...rep.chamadas.map(c => `  ${c.falhas ? '[FALHOU]' : '[ok]    '} ${c.rota}  x${c.n}${c.falhas ? `  falhas: ${c.falhas}  ${c.erro}` : ''}`));
+  return L.join('\n');
 }
