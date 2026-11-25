@@ -11,7 +11,8 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:-.01em;line-height:var(-
 /* Barra lateral de ícones, com brilho vermelho no pé */
 .rail{position:fixed;inset:0 auto 0 0;width:72px;z-index:30;display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);padding:var(--sp-3) 0;color:var(--masthead-ink-2);
   background:linear-gradient(180deg,var(--masthead) 55%,color-mix(in srgb,var(--brand-red-deep) 70%,var(--masthead)) 100%);}
-.brand-mark{width:40px;height:40px;border-radius:var(--r-lg);background:var(--brand-red);color:#fff;display:grid;place-items:center;font:700 20px/1 var(--font-display);margin-bottom:var(--sp-3);}
+.brand-mark{width:44px;height:44px;border-radius:var(--r-lg);background:var(--masthead-ink);display:grid;place-items:center;margin-bottom:var(--sp-3);box-shadow:0 1px 3px rgba(0,0,0,.35);}
+.brand-mark img{display:block;height:30px;width:auto;}
 .rail nav{display:flex;flex-direction:column;gap:var(--sp-2);width:100%;align-items:center;}
 .rail-btn,.rail nav button{all:unset;box-sizing:border-box;position:relative;width:40px;height:40px;display:grid;place-items:center;border-radius:var(--r-lg);cursor:pointer;color:var(--masthead-ink-2);
   border:1px solid color-mix(in srgb,var(--masthead-ink) 14%,transparent);transition:background var(--duration-hover) var(--ease-out),color var(--duration-hover) var(--ease-out);}

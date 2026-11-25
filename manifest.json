@@ -1,19 +1,63 @@
 {
   "manifest_version": 3,
   "name": "Hub de Monitoramento do Portal",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Painel por cima do Onvio para acompanhar o uso do Portal do Cliente: nomenclatura, pastas, clientes sem envio e notificações.",
-  "permissions": ["storage", "unlimitedStorage", "scripting", "tabs"],
-  "host_permissions": ["https://onvio.com.br/*"],
-  "background": { "service_worker": "src/background.js", "type": "module" },
-  "action": { "default_title": "Hub de Monitoramento (abre por cima do Onvio)" },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://onvio.com.br/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Hub de Monitoramento (abre por cima do Onvio)",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png"
+    }
+  },
   "commands": {
-    "alternar-camada": { "suggested_key": { "default": "Alt+Shift+M" }, "description": "Abrir ou fechar o Hub de Monitoramento por cima do Onvio" }
+    "alternar-camada": {
+      "suggested_key": {
+        "default": "Alt+Shift+M"
+      },
+      "description": "Abrir ou fechar o Hub de Monitoramento por cima do Onvio"
+    }
   },
   "content_scripts": [
-    { "matches": ["https://onvio.com.br/*"], "js": ["src/overlay.js"], "run_at": "document_idle" }
+    {
+      "matches": [
+        "https://onvio.com.br/*"
+      ],
+      "js": [
+        "src/overlay.js"
+      ],
+      "run_at": "document_idle"
+    }
   ],
   "web_accessible_resources": [
-    { "resources": ["hub/*", "src/*"], "matches": ["https://onvio.com.br/*"] }
-  ]
+    {
+      "resources": [
+        "hub/*",
+        "src/*"
+      ],
+      "matches": [
+        "https://onvio.com.br/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
 }

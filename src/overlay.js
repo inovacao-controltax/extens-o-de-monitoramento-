@@ -13,13 +13,14 @@
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     *{box-sizing:border-box}
-    #b{pointer-events:auto;position:fixed;right:20px;bottom:84px;width:44px;height:44px;border:0;border-radius:8px;background:#C2000C;color:#fff;font:700 20px/1 system-ui,sans-serif;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.25);touch-action:none}
-    #b:hover{filter:brightness(1.1)} #b:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px} #b.arr{cursor:grabbing}
+    #b{pointer-events:auto;position:fixed;right:20px;bottom:84px;width:48px;height:48px;padding:0;border:3px solid transparent;border-radius:10px;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.25);touch-action:none;transition:border-color .2s}
+    #b img{height:30px;width:auto;pointer-events:none;display:block}
+    #b:hover{filter:brightness(.96)} #b:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px} #b.arr{cursor:grabbing}
     #v{pointer-events:auto;position:fixed;inset:0;background:#0B1015}
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
   </style>
-  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)">C</button>
+  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"></button>
   <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"></div>`;
   document.documentElement.appendChild(host);
   const b = root.getElementById('b'), v = root.getElementById('v');
@@ -47,8 +48,8 @@
     const dx = e.clientX - arr.x, dy = e.clientY - arr.y;
     if (!arr.mov && Math.hypot(dx, dy) < 5) return;
     arr.mov = true; b.classList.add('arr');
-    b.style.right = Math.max(4, Math.min(innerWidth - 48, arr.r - dx)) + 'px';
-    b.style.bottom = Math.max(4, Math.min(innerHeight - 48, arr.bt - dy)) + 'px';
+    b.style.right = Math.max(4, Math.min(innerWidth - 52, arr.r - dx)) + 'px';
+    b.style.bottom = Math.max(4, Math.min(innerHeight - 52, arr.bt - dy)) + 'px';
   });
   b.addEventListener('pointerup', e => {
     const moveu = arr && arr.mov; b.classList.remove('arr'); arr = null;
@@ -67,7 +68,7 @@
   const dica = 'Hub de Monitoramento (Alt+Shift+M)';
   function estado(e) {
     b.title = e.estado === 'rodando' ? `${dica}\nLendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? `${dica}\n${e.msg}` : e.estado === 'cliente' ? dica : `${dica}\nLeitura: ${e.msg || e.estado}`;
-    b.style.background = e.estado === 'rodando' ? '#B5530C' : '#C2000C';
+    b.style.borderColor = e.estado === 'rodando' ? '#B5530C' : 'transparent';   // laranja enquanto lê
   }
   import(chrome.runtime.getURL('src/auto-coleta.js')).then(m => m.iniciar({ onEstado: estado })).catch(() => { /* leitura automática indisponível */ });
 })();
