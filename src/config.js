@@ -15,6 +15,7 @@ export const DEFAULT_CONFIG = {
   notifCampoEmail: '', notifCampoSistema: '',   // caminhos dos campos "nova Solicitação de Serviço" (vazio = detectar)
   hubCodigo: '',      // código de pareamento do Control Hub (o mesmo do Control Onvio): liga a extensão ao Hub para puxar os clientes treinados
   hubAuto: true,      // com o código e o Hub aberto numa aba, atualizar a lista de treinados sozinho a cada horasAuto
+  silenciadas: [],    // empresas que não devem aparecer em "sem envio": [{ cnpj, ate: 'AAAA-MM-DD'|'' (sem data), motivo, em }]
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 

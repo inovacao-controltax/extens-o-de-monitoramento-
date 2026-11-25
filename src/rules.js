@@ -45,22 +45,28 @@ export function checkPastas(docs, cfg) {
  * (carência: quem acabou de ser treinado ainda não está atrasado). Sem nenhuma das duas datas, entra como "nunca enviou".
  * dias === null significa "nunca enviou nada".
  */
-export function checkSemEnvio(docs, trained, cfg, now = new Date()) {
-  const ultimo = new Map();
+export function checkSemEnvio(docs, trained, cfg, now = new Date(), solic = {}) {
+  const ultimo = new Map(), fonte = new Map();
+  const marca = (cnpj, t, f) => { if (!ultimo.has(cnpj) || t > ultimo.get(cnpj)) { ultimo.set(cnpj, t); fonte.set(cnpj, f); } };
   for (const d of docs) {
     if (d.origem !== 'cliente') continue;
     const t = utcDay(d.data); if (t === null) continue;
-    if (!ultimo.has(d.cnpj) || t > ultimo.get(d.cnpj)) ultimo.set(d.cnpj, t);
+    marca(d.cnpj, t, 'arquivo');
   }
+  // Solicitações de Serviço: qualquer ação do cliente (abrir, responder, lançar rubrica) mostra que ele usa o portal. { cnpj: 'AAAA-MM-DD' }
+  for (const [cnpj, iso] of Object.entries(solic || {})) { const t = utcDay(iso); if (t !== null) marca(cnpj, t, 'solicitação'); }
   const out = [];
   for (const t of trained) {
     const last = ultimo.get(t.cnpj);
     const dias = last === undefined ? null : Math.floor((today(now) - last) / DAY);
     const ref = dias !== null ? dias : (t.treinadoEm ? daysSince(t.treinadoEm, now) : null);
-    if (ref === null || ref > cfg.diasSemEnvio) out.push({ empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias });
+    if (ref === null || ref > cfg.diasSemEnvio) out.push({ empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(t.cnpj) });
   }
   return out.sort((a, b) => (b.dias ?? Infinity) - (a.dias ?? Infinity));
 }
+
+/** Empresas silenciadas agora: { cnpj, ate: 'AAAA-MM-DD' | '' (sem data), motivo }. Vencida a data, a empresa volta a ser acompanhada. */
+export const silenciadaAgora = (s, now = new Date()) => !!s && (!s.ate || utcDay(s.ate) === null || utcDay(s.ate) >= today(now));
 
 /** Funcionários com o aviso de tarefa nova desligado e que têm tarefas ativas. */
 export function checkNotificacoes(users) {
@@ -89,7 +95,7 @@ export function analyze(snapshot, cfg, now = new Date()) {
   return {
     nomenclatura: checkNomenclatura(docs, cfg),
     pastas: checkPastas(docs, cfg),
-    semEnvio: checkSemEnvio(docs, trained, cfg, now),
+    semEnvio: checkSemEnvio(docs, trained, cfg, now, snapshot.solic).filter(r => !(cfg.silenciadas || []).some(x => x.cnpj === r.cnpj && silenciadaAgora(x, now))),
     notificacoes: snapshot.notif ? checkNotificacoesOnvio(snapshot.notif, cfg) : checkNotificacoes(snapshot.users || []),
   };
 }

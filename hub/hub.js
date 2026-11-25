@@ -1,6 +1,6 @@
 import { SAMPLE } from '../src/mock.js';
-import { loadConfig, formatCnpj } from '../src/config.js';
-import { analyze, checkNotificacoesOnvio } from '../src/rules.js';
+import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
+import { analyze, checkNotificacoesOnvio, silenciadaAgora } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot } from '../src/snapshot.js';
@@ -47,10 +47,12 @@ const TABS = {
     step: r => [`Pasta fora do padrão · ${r.empresa}`, `"${r.pasta}" com ${r.arquivos} arquivos`] },
   semEnvio: { label: 'Treinados sem envio', icon: I.clock, sev: 's-late', title: 'Clientes treinados que não estão enviando',
     hint: 'Treinados, com demanda, sem envio recente no portal', setores: r => r.demanda,
-    cols: [['Empresa'], ['CNPJ', 'num'], ['Treinado em', 'num col-sec'], ['Demanda'], ['Situação']],
+    cols: [['Empresa'], ['CNPJ', 'num'], ['Treinado em', 'num col-sec'], ['Demanda'], ['Último envio', 'col-sec'], ['Situação'], ['', 'r']],
     row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), fmt(r.treinadoEm), r.demanda.map(sector).join(''),
-      r.dias === null ? badge('Nunca enviou', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn')],
-    step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e nunca enviou nada' : `Último envio há ${r.dias} dias`] },
+      r.dias === null ? '<span class="muted">nenhum registrado</span>' : `há ${r.dias} dias <span class="muted">· ${esc(r.fonte || 'arquivo')}</span>`,
+      r.dias === null ? badge('Nenhum envio registrado', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn'),
+      `<button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button>`],
+    step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e sem nenhum uso do portal registrado' : `Última atividade do cliente há ${r.dias} dias (${r.fonte || 'arquivo'})`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificação desativada',
     hint: 'Alguém desmarcou "Via e-mail" e "Via sistema" em "A cada nova Solicitação de Serviço"', setores: r => String(r.setor || '').split(', ').filter(Boolean),
     cols: [['Funcionário'], ['Nova solicitação'], ['Situação']],
@@ -60,11 +62,11 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
-let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
-const source = () => (real() ? { docs: real().docs, notif: nsnap, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
+const source = () => (real() ? { docs: real().docs, notif: nsnap, solic: ssnap && ssnap.porCnpj, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
 const recompute = () => { R = analyze(source(), cfg); if (nsnap) R.notificacoes = checkNotificacoesOnvio(nsnap, cfg); marcarIcone(); };   // notificações lidas do Onvio valem mesmo sem a coleta das empresas
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
@@ -154,9 +156,11 @@ function tableHtml(k) {
   return `<div class="tbl-wrap"><table><thead><tr>${t.cols.map(([n, c = '']) => `<th class="${c}">${n}</th>`).join('')}</tr></thead><tbody>${
     rows.slice(0, state.lim[k] || LIM).map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, state.lim[k] || LIM)} de ${rows.length} itens${rows.length > (state.lim[k] || LIM) ? ` · <button class="btn btn-sm" data-mais="${k}" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Fonte: ${k === 'notificacoes' ? 'Onvio' : fonteNome().toLowerCase()}</span></div>`;
 }
+const silAtivas = () => ((cfg && cfg.silenciadas) || []).filter(x => silenciadaAgora(x));
+function silBarHtml() { const n = silAtivas().length; return n ? `<div class="tbl-foot"><span>${n} empresa${n > 1 ? 's' : ''} silenciada${n > 1 ? 's' : ''}</span><button type="button" class="btn btn-sm" data-sil-ver>Ver silenciadas</button></div>` : ''; }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}</div></section>`;
 }
 
 function hojeHtml() {
@@ -214,8 +218,44 @@ function render(animar = false) {
   v.querySelectorAll('[data-go]').forEach(e => e.addEventListener('click', () => go(e.dataset.go)));
   v.querySelectorAll('[data-blk]').forEach(e => e.addEventListener('click', () => { state.open[e.dataset.blk] = !state.open[e.dataset.blk]; render(); }));
   v.querySelectorAll('[data-dismiss]').forEach(e => e.addEventListener('click', () => { state.dispensados.add(e.dataset.dismiss); render(); }));
+  v.querySelectorAll('[data-sil]').forEach(e => e.addEventListener('click', () => abrirSilenciar(e.dataset.sil)));
+  v.querySelectorAll('[data-sil-ver]').forEach(e => e.addEventListener('click', abrirSilenciadas));
   v.querySelectorAll('[data-clear]').forEach(e => e.addEventListener('click', () => { $('search').value = ''; state.setor = 'Todos'; render(); }));
   renderNav();
+}
+// Silenciar uma empresa em "Treinados sem envio": motivo e até quando (ou sem data). Vale só neste navegador; vencida a data, volta a ser acompanhada.
+async function salvarSilenciadas(lista) {
+  const c = { ...(await loadConfig()), silenciadas: lista }; const r = await saveConfig(c);
+  if (!r.ok) { toast('Não foi possível salvar', 'warn'); return false; }
+  cfg = c; recompute(); renderNav(); render(false); return true;
+}
+function dialogo(html) {
+  document.querySelectorAll('dialog.sil-dlg').forEach(d => d.remove());
+  const d = document.createElement('dialog'); d.className = 'sil-dlg'; d.innerHTML = html; document.body.appendChild(d);
+  d.addEventListener('close', () => d.remove()); d.showModal(); return d;
+}
+function abrirSilenciar(cnpj) {
+  const emp = ((R.semEnvio || []).find(r => r.cnpj === cnpj) || (cfg.trained || []).find(t => t.cnpj === cnpj) || {}).empresa || formatCnpj(cnpj);
+  const d = dialogo(`<form method="dialog" class="dlg-body" style="display:grid;gap:12px;min-width:min(420px,86vw)"><h2 style="margin:0">Silenciar ${esc(emp)}</h2>
+    <p class="note-txt" style="margin:0">A empresa sai de "Treinados sem envio" pelo tempo escolhido e volta sozinha depois.</p>
+    <label class="field">Por quanto tempo<select id="sil-dias"><option value="15">15 dias</option><option value="30" selected>30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option><option value="0">Sem data (até eu voltar a acompanhar)</option></select></label>
+    <label class="field">Motivo<input id="sil-motivo" maxlength="120" autocomplete="off" placeholder="Ex.: sem movimento, férias coletivas"></label>
+    <div class="row" style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn" id="sil-cancela">Cancelar</button><button type="button" class="btn btn-primary" id="sil-ok">Silenciar</button></div></form>`);
+  d.querySelector('#sil-cancela').addEventListener('click', () => d.close());
+  d.querySelector('#sil-ok').addEventListener('click', async () => {
+    const dias = Number(d.querySelector('#sil-dias').value), ate = dias ? new Date(Date.now() + dias * 864e5).toISOString().slice(0, 10) : '';
+    const nova = [...((cfg.silenciadas) || []).filter(x => x.cnpj !== cnpj), { cnpj, ate, motivo: d.querySelector('#sil-motivo').value.trim().slice(0, 120), em: new Date().toISOString().slice(0, 10) }];
+    if (await salvarSilenciadas(nova)) { d.close(); toast(`${emp} silenciada${ate ? ' até ' + fmt(ate) : ''}`); }
+  });
+}
+function abrirSilenciadas() {
+  const nome = c => ((cfg.trained || []).find(t => t.cnpj === c) || {}).empresa || formatCnpj(c);
+  const lin = silAtivas().map(x => `<tr><td><span class="emp">${esc(nome(x.cnpj))}</span></td><td>${x.ate ? 'até ' + fmt(x.ate) : 'sem data'}</td><td>${esc(x.motivo || '—')}</td><td class="r"><button type="button" class="btn btn-sm" data-volta="${esc(x.cnpj)}">Voltar a acompanhar</button></td></tr>`).join('');
+  const d = dialogo(`<div class="dlg-body" style="display:grid;gap:12px;min-width:min(640px,92vw)"><h2 style="margin:0">Empresas silenciadas</h2>
+    ${lin ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>Silenciada</th><th>Motivo</th><th></th></tr></thead><tbody>${lin}</tbody></table></div>` : '<p class="note-txt">Nenhuma empresa silenciada agora.</p>'}
+    <div class="row" style="display:flex;justify-content:flex-end"><button type="button" class="btn" id="sil-fecha">Fechar</button></div></div>`);
+  d.querySelector('#sil-fecha').addEventListener('click', () => d.close());
+  d.querySelectorAll('[data-volta]').forEach(b => b.addEventListener('click', async () => { if (await salvarSilenciadas((cfg.silenciadas || []).filter(x => x.cnpj !== b.dataset.volta))) { d.close(); toast('Voltou a ser acompanhada'); } }));
 }
 function go(k) { state.view = k; render(true); window.scrollTo(0, 0); }
 
@@ -260,6 +300,7 @@ try {
     if (area !== 'local') return;
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
     if (ch['monitor-notificacoes-estado']) { nestado = ch['monitor-notificacoes-estado'].newValue || null; recompute(); renderSuave(); }
+    if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
     if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
     if (ch['monitor-gestta-estado']) gestado = ch['monitor-gestta-estado'].newValue || null;
@@ -267,6 +308,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado']).then(r => { nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes']).then(r => { ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
