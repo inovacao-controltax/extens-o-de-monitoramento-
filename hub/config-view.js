@@ -1,3 +1,5 @@
+import { discoverNames, discoverFolders } from '../src/discovery.js';
+import { trainedFromHub } from '../src/hub-sync.js';
 import { DEFAULT_CONFIG, SETORES, loadConfig, saveConfig, validateConfig, testFileName, parseTrained, mergeTrained, formatCnpj } from '../src/config.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -46,10 +48,16 @@ export async function renderConfig(root, { toast, onSaved }) {
     <section class="card"><h2>Clientes sem envio</h2>
       <div class="field" id="f-dias"><label for="dias">Alertar após quantos dias sem envio</label>
         <input id="dias" class="num" type="number" min="1" max="365" inputmode="numeric"><span class="hint" id="h-dias">Vale para clientes já treinados e com demanda.</span></div></section>
+    <section class="card wide"><h2>Descobrir o padrão</h2>
+      <p class="note-txt">Cole nomes de arquivos de empresas bem organizadas, um por linha. Com a pasta na frente (Fiscal/2026/11/arquivo.pdf) também sugere as pastas.</p>
+      <div class="field"><label for="disc">Nomes ou caminhos de arquivos</label>
+        <textarea id="disc" rows="5" class="num" placeholder="2026-11 - NFE - entradas.pdf&#10;Fiscal/2026/10/2026-10 - NFE - saidas.pdf"></textarea></div>
+      <div class="row"><button class="btn" id="analisar" type="button">Analisar nomes</button></div>
+      <div id="discres"></div></section>
     <section class="card wide"><h2>Clientes treinados <span class="count" id="tcount"></span></h2>
       <div class="field"><label for="paste">Colar da planilha</label>
         <textarea id="paste" rows="4" class="num" placeholder="Empresa;CNPJ;Treinado em;Demanda&#10;Alfa Ltda;11.222.333/0001-81;01/09/2026;Pessoal, Fiscal"></textarea>
-        <span class="hint">Colunas: empresa, CNPJ, treinado em (dd/mm/aaaa) e demanda (Pessoal, Fiscal, Contábil, Financeiro). Separe por ponto e vírgula ou cole direto do Excel.</span></div>
+        <span class="hint">Colunas: empresa, CNPJ, treinado em (dd/mm/aaaa) e demanda (Pessoal, Fiscal, Contábil, Financeiro). Separe por ponto e vírgula ou cole direto do Excel. Também aceita o JSON do Hub ({ empresas, contatos }): entram as empresas com treinamento concluído ou em andamento.</span></div>
       <div class="row"><button class="btn" id="import" type="button">Importar lista</button><button class="btn btn-ghost" id="clearT" type="button">Remover todos</button></div>
       <ul class="errs" id="errs"></ul><div id="ttable"></div></section>
   </div>`;
@@ -71,7 +79,7 @@ export async function renderConfig(root, { toast, onSaved }) {
     $('#ttable').innerHTML = !t.length
       ? '<div class="empty"><b>Nenhum cliente treinado ainda.</b><p>Cole a lista da planilha de treinamento acima e clique em Importar lista.</p></div>'
       : `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th class="col-sec">Treinado em</th><th>Demanda</th><th></th></tr></thead><tbody>${t.map((x, i) =>
-        `<tr><td><span class="emp">${esc(x.empresa)}</span></td><td class="num">${esc(formatCnpj(x.cnpj))}</td><td class="num col-sec">${fmtDate(x.treinadoEm)}</td><td>${x.demanda.map(s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`).join('') || '<span class="muted">—</span>'}</td><td class="r"><button class="btn btn-ghost btn-sm" data-del="${i}" type="button">Remover</button></td></tr>`).join('')}</tbody></table></div>`;
+        `<tr><td><span class="emp">${esc(x.empresa)}</span>${x.parcial ? ' <span class="badge s-warn">Parcial</span>' : ''}</td><td class="num">${esc(formatCnpj(x.cnpj))}</td><td class="num col-sec">${fmtDate(x.treinadoEm)}</td><td>${x.demanda.map(s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`).join('') || '<span class="muted">—</span>'}</td><td class="r"><button class="btn btn-ghost btn-sm" data-del="${i}" type="button">Remover</button></td></tr>`).join('')}</tbody></table></div>`;
     $('#ttable').querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { draft.trained.splice(+b.dataset.del, 1); trained(); refreshDirty(); }));
   }
   function fill() { $('#pattern').value = draft.filePattern; $('#dias').value = draft.diasSemEnvio; chips(); trained(); test(); refreshDirty(); }
@@ -87,7 +95,12 @@ export async function renderConfig(root, { toast, onSaved }) {
   $('#addfolder').addEventListener('click', addFolder);
   $('#newfolder').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFolder(); } });
   $('#import').addEventListener('click', () => {
-    const { rows, errors } = parseTrained($('#paste').value);
+    const txt = $('#paste').value;
+    let rows, errors;
+    if (/^\s*[\[{]/.test(txt)) {
+      try { rows = trainedFromHub(JSON.parse(txt)); errors = rows.length ? [] : [{ linha: 1, msg: 'Nenhum cliente com treinamento concluído ou em andamento no JSON do Hub.' }]; }
+      catch (e) { rows = []; errors = [{ linha: 1, msg: 'JSON inválido. Cole o conteúdo completo exportado do Hub.' }]; }
+    } else ({ rows, errors } = parseTrained(txt));
     $('#errs').innerHTML = errors.map(e => `<li>Linha ${e.linha}: ${esc(e.msg)}</li>`).join('');
     if (rows.length) { draft.trained = mergeTrained(draft.trained, rows); trained(); refreshDirty(); }
     if (!rows.length && !errors.length) return toast('Cole ao menos uma linha antes de importar', 'warn');
@@ -110,5 +123,26 @@ export async function renderConfig(root, { toast, onSaved }) {
     if (!res.ok) return toast(res.errors._geral || 'Não foi possível salvar', 'warn');
     Object.assign(saved, structuredClone(draft)); refreshDirty(); toast('Configurações salvas'); onSaved?.(draft);
   });
+  function descobrir() {
+    const linhas = $('#disc').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!linhas.length) return toast('Cole ao menos um nome de arquivo', 'warn');
+    const nomes = linhas.map(l => l.split(/[\\/]/).filter(Boolean).pop());
+    const nf = discoverNames(nomes), pf = discoverFolders(linhas);
+    const usadas = new Set(draft.allowedFolders.map(f => f.toLowerCase()));
+    const tabela = `<div class="tbl-wrap"><table><thead><tr><th>Formato</th><th class="r">Arquivos</th><th class="r">%</th><th>Exemplo</th><th></th></tr></thead><tbody>${nf.formatos.slice(0, 8).map((f, i) =>
+      `<tr><td class="num">${esc(f.shape)}${f.exts.length ? '.' + esc(f.exts.join('|')) : ''}</td><td class="num r">${f.count}</td><td class="num r">${f.pct}%</td><td>${esc(f.examples[0])}</td><td class="r"><button class="btn btn-sm" data-use="${i}" type="button">Usar como padrão</button></td></tr>`).join('')}</tbody></table></div>
+      <p class="note-txt">${nf.total} nome(s) analisado(s). 9{4} = 4 números; X = texto.</p>`;
+    const pastas = pf.pastas.length ? `<h3 class="sub-h">Pastas de primeiro nível</h3><div class="chips">${pf.pastas.map((p, i) =>
+      `<span class="chip-x">${esc(p.nome)} <span class="num muted">${p.count} · ${p.pct}%</span>${usadas.has(p.nome.toLowerCase()) ? '' : `<button type="button" data-addf="${i}" aria-label="Adicionar pasta ${esc(p.nome)}" title="Adicionar às pastas permitidas">+</button>`}</span>`).join('')}</div>` : '';
+    $('#discres').innerHTML = tabela + pastas;
+    $('#discres').querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => {
+      draft.filePattern = nf.formatos[+b.dataset.use].regex; $('#pattern').value = draft.filePattern; $('#f-pattern').classList.remove('has-error'); test(); refreshDirty();
+      toast('Padrão aplicado, falta salvar');
+    }));
+    $('#discres').querySelectorAll('[data-addf]').forEach(b => b.addEventListener('click', () => {
+      const nome = pf.pastas[+b.dataset.addf].nome; if (!usadas.has(nome.toLowerCase())) { draft.allowedFolders.push(nome); chips(); refreshDirty(); b.remove(); toast(`Pasta "${nome}" adicionada, falta salvar`); }
+    }));
+  }
+  $('#analisar').addEventListener('click', descobrir);
   fill();
 }
