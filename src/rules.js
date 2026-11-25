@@ -45,7 +45,8 @@ export function checkPastas(docs, cfg) {
  * (carência: quem acabou de ser treinado ainda não está atrasado). Sem nenhuma das duas datas, entra como "nunca enviou".
  * dias === null significa "nunca enviou nada".
  */
-export function checkSemEnvio(docs, trained, cfg, now = new Date(), solic = {}) {
+/** Situação de TODAS as treinadas: dias desde a última atividade do cliente (arquivo ou Solicitação), de onde veio, ou null se não há registro. */
+export function statusEnvio(docs, trained, now = new Date(), solic = {}) {
   const ultimo = new Map(), fonte = new Map();
   const marca = (cnpj, t, f) => { if (!ultimo.has(cnpj) || t > ultimo.get(cnpj)) { ultimo.set(cnpj, t); fonte.set(cnpj, f); } };
   for (const d of docs) {
@@ -55,12 +56,18 @@ export function checkSemEnvio(docs, trained, cfg, now = new Date(), solic = {}) 
   }
   // Solicitações de Serviço: qualquer ação do cliente (abrir, responder, lançar rubrica) mostra que ele usa o portal. { cnpj: 'AAAA-MM-DD' }
   for (const [cnpj, iso] of Object.entries(solic || {})) { const t = utcDay(iso); if (t !== null) marca(cnpj, t, 'solicitação'); }
-  const out = [];
-  for (const t of trained) {
+  return trained.map(t => {
     const last = ultimo.get(t.cnpj);
     const dias = last === undefined ? null : Math.floor((today(now) - last) / DAY);
-    const ref = dias !== null ? dias : (t.treinadoEm ? daysSince(t.treinadoEm, now) : null);
-    if (ref === null || ref > cfg.diasSemEnvio) out.push({ empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(t.cnpj) });
+    return { empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(t.cnpj) };
+  });
+}
+
+export function checkSemEnvio(docs, trained, cfg, now = new Date(), solic = {}) {
+  const out = [];
+  for (const r of statusEnvio(docs, trained, now, solic)) {
+    const ref = r.dias !== null ? r.dias : (r.treinadoEm ? daysSince(r.treinadoEm, now) : null);
+    if (ref === null || ref > cfg.diasSemEnvio) out.push(r);
   }
   return out.sort((a, b) => (b.dias ?? Infinity) - (a.dias ?? Infinity));
 }

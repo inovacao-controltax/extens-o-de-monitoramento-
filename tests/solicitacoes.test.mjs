@@ -76,3 +76,10 @@ test('silenciar: com data vale até ela; sem data vale sempre; vencida volta a a
   const a = analyze({ docs: [], trained: [] }, cfg, agora);
   assert.deepEqual(a.semEnvio.map(x => x.cnpj), ['2']);
 });
+
+import { statusEnvio } from '../src/rules.js';
+test('statusEnvio: todas as treinadas, com dias e origem; nunca some empresa', () => {
+  const r = statusEnvio([{ cnpj: '1', origem: 'cliente', data: '2026-11-10' }, { cnpj: '1', origem: 'escritorio', data: '2026-11-24' }], trained, agora, { 2: '2026-11-20' });
+  assert.deepEqual(r.map(x => [x.cnpj, x.dias, x.fonte]), [['1', 15, 'arquivo'], ['2', 5, 'solicitação']]);     // arquivo do escritório não conta
+  assert.equal(statusEnvio([], trained, agora, null).every(x => x.dias === null && x.fonte === ''), true);
+});
