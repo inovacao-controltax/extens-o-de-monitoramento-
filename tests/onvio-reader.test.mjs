@@ -427,3 +427,8 @@ test('erro de sessão na leitura da equipe interrompe tudo', async () => {
   const f = async url => { if (/employees/.test(url)) return { items: [{ id: h32(1), contactId: h32(2), name: 'X' }], totalItems: 1, totalPages: 1 }; throw new AuthError('sessão'); };
   await assert.rejects(lerNotificacoesEscritorio(f), AuthError);
 });
+
+test('formato real do Onvio: newTicketEmail/newTicketSystem são a nova solicitação; newTopic* (trâmite) não', () => {
+  const c = ['completedTopicEmail', 'newTicketEmail', 'newTicketSystem', 'newTopicEmail', 'newTopicSystem', 'newTopicEmailAllContacts', 'forwardedTopicEmail'].map(x => [x]);
+  assert.deepEqual(detectarCamposNovaSolicitacao(c), { email: 'newTicketEmail', sistema: 'newTicketSystem' });
+});
