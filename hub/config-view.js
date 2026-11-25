@@ -49,6 +49,12 @@ export async function renderConfig(root, { toast, onSaved }) {
     <section class="card"><h2>Clientes sem envio</h2>
       <div class="field" id="f-dias"><label for="dias">Alertar após quantos dias sem envio</label>
         <input id="dias" class="num" type="number" min="1" max="365" inputmode="numeric"><span class="hint" id="h-dias">Vale para clientes já treinados e com demanda.</span></div></section>
+    <section class="card wide"><h2>Aviso ao cliente sem uso do portal</h2>
+      <p class="note-txt">O botão <b>Avisar</b> da lista de sem envio prepara um rascunho no Zimbra com este texto. A extensão nunca envia: você confere e envia. Não peça documento assinado no texto.</p>
+      <div class="field"><label for="msgaviso">Mensagem</label><textarea id="msgaviso" rows="8" class="num" spellcheck="true" placeholder="Deixe em branco para usar o texto padrão"></textarea>
+        <span class="hint">Variáveis: {empresa}, {dias}, {ultima} (a data da última atividade) e {assinatura}.</span></div>
+      <div class="field"><label for="msgassin">Assinatura</label><input id="msgassin" maxlength="80" autocomplete="off"></div>
+      <div class="field"><label for="zimbra">Endereço do Zimbra</label><input id="zimbra" class="num" spellcheck="false" autocomplete="off" placeholder="https://mail.controltax.com.br/"></div></section>
     <section class="card wide"><h2>Descobrir o padrão</h2>
       <p class="note-txt">Cole nomes de arquivos de empresas bem organizadas, um por linha. Com a pasta na frente (Fiscal/2026/11/arquivo.pdf) também sugere as pastas.</p>
       <div class="field"><label for="disc">Nomes ou caminhos de arquivos</label>
@@ -91,10 +97,13 @@ export async function renderConfig(root, { toast, onSaved }) {
         `<tr><td><span class="emp">${esc(x.empresa)}</span>${x.parcial ? ' <span class="badge s-warn">Parcial</span>' : ''}</td><td class="num">${esc(formatCnpj(x.cnpj))}</td><td class="num col-sec">${fmtDate(x.treinadoEm)}</td><td>${x.demanda.map(s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`).join('') || '<span class="muted">—</span>'}</td><td class="r"><button class="btn btn-ghost btn-sm" data-del="${i}" type="button">Remover</button></td></tr>`).join('')}</tbody></table></div>`;
     $('#ttable').querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { draft.trained.splice(+b.dataset.del, 1); trained(); refreshDirty(); }));
   }
-  function fill() { $('#pattern').value = draft.filePattern; $('#dias').value = draft.diasSemEnvio; chips(); trained(); test(); refreshDirty(); }
+  function fill() { $('#msgaviso').value = draft.msgAviso || ''; $('#msgassin').value = draft.msgAssinatura || ''; $('#zimbra').value = draft.zimbraUrl || ''; $('#pattern').value = draft.filePattern; $('#dias').value = draft.diasSemEnvio; chips(); trained(); test(); refreshDirty(); }
 
   $('#pattern').addEventListener('input', e => { draft.filePattern = e.target.value; setErr('pattern', null); $('#f-pattern').classList.remove('has-error'); $('#h-pattern').textContent = 'Padrão da ControlTax: a competência MM-AAAA antes do nome, por exemplo 10-2026 Folha de pagamento.pdf. O que foge disso é apontado.'; test(); refreshDirty(); });
   $('#testname').addEventListener('input', test);
+  $('#msgaviso').addEventListener('input', e => { draft.msgAviso = e.target.value; refreshDirty(); });
+  $('#msgassin').addEventListener('input', e => { draft.msgAssinatura = e.target.value; refreshDirty(); });
+  $('#zimbra').addEventListener('input', e => { draft.zimbraUrl = e.target.value.trim(); refreshDirty(); });
   $('#dias').addEventListener('input', e => { draft.diasSemEnvio = e.target.value === '' ? NaN : Number(e.target.value); $('#f-dias').classList.remove('has-error'); $('#h-dias').textContent = 'Vale para clientes já treinados e com demanda.'; refreshDirty(); });
   const addFolder = () => {
     const v = $('#newfolder').value.trim(); if (!v) return;

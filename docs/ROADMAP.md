@@ -15,6 +15,6 @@
 | 5 | **Gestta · notificações desativadas**: leitor só de leitura (token só na página, dados sensíveis nunca lidos), leitura automática, detecção do campo, modo aprender e monitor no painel | feito (testado em Chromium real com Gestta simulado); **a conferir no Gestta real**: onde fica o campo da notificação |
 | 5b | **Notificações do escritório (Onvio)**: modo aprender do Onvio (feito); leitura da tela de notificações e monitor com o aviso de nova solicitação desligado | aguardando as chamadas observadas |
 | 6 | Varredura de todas as empresas, histórico, badge e alertas | feito (0.12.0): histórico por leitura, "novas" no sino e na bolinha, evolução em 7 dias |
-| 7 | Ações (avisar cliente por e-mail/Zappy), exportação CSV | CSV feito (0.12.0); avisar o cliente fica para depois |
+| 7 | Ações (avisar cliente por e-mail/Zappy), exportação CSV | CSV feito (0.12.0); aviso ao cliente feito (0.15.0): rascunho no Zimbra, quem envia é a pessoa |
 
 Ideia geral e arquitetura: veja `IDEIA.md`.

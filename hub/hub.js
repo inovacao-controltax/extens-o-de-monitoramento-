@@ -1,6 +1,7 @@
 import { SAMPLE } from '../src/mock.js';
 import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
 import { puxarTreinados } from '../src/hub-treinados.js';
+import { montarAviso, linkZimbra } from '../src/aviso.js';
 import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
@@ -55,7 +56,7 @@ const TABS = {
     row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), fmt(r.treinadoEm), r.demanda.map(sector).join(''),
       r.dias === null ? '<span class="muted">nenhum registrado</span>' : `há ${r.dias} dias <span class="muted">· ${esc(r.fonte || 'arquivo')}</span>`,
       r.dias === null ? badge('Nenhum envio registrado', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn'),
-      `<button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button>`],
+      `<span style="display:inline-flex;gap:6px;align-items:center">${(cfg.avisados || {})[r.cnpj] ? `<small class="muted" title="Dia em que o rascunho do aviso foi aberto">aviso em ${fmt(cfg.avisados[r.cnpj])}</small>` : ''}<button type="button" class="btn btn-sm" data-avisar="${esc(r.cnpj)}" title="Prepara o e-mail para o cliente no Zimbra (você confere e envia)">Avisar</button><button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button></span>`],
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e sem nenhum uso do portal registrado' : `Última atividade do cliente há ${r.dias} dias (${r.fonte || 'arquivo'})`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificação desativada',
     hint: 'Alguém desmarcou "Via e-mail" e "Via sistema" em "A cada nova Solicitação de Serviço"', setores: r => String(r.setor || '').split(', ').filter(Boolean),
@@ -269,6 +270,7 @@ function render(animar = false) {
   }));
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
+  v.querySelectorAll('[data-avisar]').forEach(e => e.addEventListener('click', () => abrirAviso(e.dataset.avisar)));
   v.querySelectorAll('[data-sil]').forEach(e => e.addEventListener('click', () => abrirSilenciar(e.dataset.sil)));
   v.querySelectorAll('[data-sil-ver]').forEach(e => e.addEventListener('click', abrirSilenciadas));
   v.querySelectorAll('[data-clear]').forEach(e => e.addEventListener('click', () => { $('search').value = ''; state.setor = 'Todos'; render(); }));
@@ -297,6 +299,27 @@ function abrirSilenciar(cnpj) {
     const dias = Number(d.querySelector('#sil-dias').value), ate = dias ? new Date(Date.now() + dias * 864e5).toISOString().slice(0, 10) : '';
     const nova = [...((cfg.silenciadas) || []).filter(x => x.cnpj !== cnpj), { cnpj, ate, motivo: d.querySelector('#sil-motivo').value.trim().slice(0, 120), em: new Date().toISOString().slice(0, 10) }];
     if (await salvarSilenciadas(nova)) { d.close(); toast(`${emp} silenciada${ate ? ' até ' + fmt(ate) : ''}`); }
+  });
+}
+// Avisar o cliente: mostra o texto para conferir e abre o RASCUNHO no Zimbra (link de verdade). A extensão nunca envia nada.
+function abrirAviso(cnpj) {
+  const r = (R.semEnvio || []).find(x => x.cnpj === cnpj); if (!r) return;
+  const src = source(), st = statusEnvio(src.docs, [r], new Date(), src.solic)[0];
+  let data = ''; if (st && st.dias !== null) data = new Date(Date.now() - st.dias * 864e5).toISOString().slice(0, 10);
+  const m = montarAviso(cfg, { empresa: r.empresa, dias: r.dias, data });
+  const d = dialogo(`<div class="dlg-body" style="display:grid;gap:10px;min-width:min(620px,92vw)"><h2 style="margin:0">Avisar ${esc(r.empresa)}</h2>
+    <p class="note-txt" style="margin:0">Confira e edite o texto. O botão abre o rascunho no Zimbra; <b>quem envia é você</b>. Escolha o destinatário lá (o contato do portal da empresa).</p>
+    <label class="field">Assunto<input id="av-assunto" value="${esc(m.assunto)}" maxlength="150" autocomplete="off"></label>
+    <label class="field">Mensagem<textarea id="av-corpo" rows="10" style="width:100%">${esc(m.corpo)}</textarea></label>
+    <div class="row" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button type="button" class="btn" id="av-copiar">Copiar texto</button><button type="button" class="btn" id="av-fecha">Cancelar</button><a class="btn btn-primary" id="av-zimbra" href="#" target="_blank" rel="noopener">Abrir no Zimbra</a></div></div>`);
+  const link = () => linkZimbra(cfg.zimbraUrl, { assunto: d.querySelector('#av-assunto').value, corpo: d.querySelector('#av-corpo').value });
+  const za = d.querySelector('#av-zimbra'); za.href = link();
+  ['#av-assunto', '#av-corpo'].forEach(q => d.querySelector(q).addEventListener('input', () => { za.href = link(); }));
+  d.querySelector('#av-fecha').addEventListener('click', () => d.close());
+  d.querySelector('#av-copiar').addEventListener('click', async () => { try { await navigator.clipboard.writeText(`${d.querySelector('#av-assunto').value}\n\n${d.querySelector('#av-corpo').value}`); toast('Texto copiado'); } catch (e) { toast('Não foi possível copiar', 'warn'); } });
+  za.addEventListener('click', async () => {       // registra o dia em que o rascunho foi aberto (não quer dizer que foi enviado)
+    const c = { ...(await loadConfig()) }; c.avisados = { ...(c.avisados || {}), [cnpj]: new Date().toISOString().slice(0, 10) };
+    if ((await saveConfig(c)).ok) { cfg = c; setTimeout(() => { render(false); d.close(); }, 300); }
   });
 }
 function abrirSilenciadas() {

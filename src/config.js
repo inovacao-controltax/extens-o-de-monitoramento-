@@ -16,6 +16,10 @@ export const DEFAULT_CONFIG = {
   hubCodigo: '',      // código de pareamento do Control Hub (o mesmo do Control Onvio): liga a extensão ao Hub para puxar os clientes treinados
   hubAuto: true,      // com o código e o Hub aberto numa aba, atualizar a lista de treinados sozinho a cada horasAuto
   silenciadas: [],    // empresas que não devem aparecer em "sem envio": [{ cnpj, ate: 'AAAA-MM-DD'|'' (sem data), motivo, em }]
+  msgAviso: '',        // texto do aviso ao cliente sem uso do portal (vazio = o padrão de src/aviso.js); variáveis {empresa} {dias} {ultima} {assinatura}
+  msgAssinatura: 'Equipe ControlTax',
+  zimbraUrl: 'https://mail.controltax.com.br/',   // onde abre o rascunho (a extensão nunca envia)
+  avisados: {},        // { cnpj: 'AAAA-MM-DD' }: dia em que o rascunho do aviso foi aberto
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 
