@@ -16,15 +16,17 @@
     *{box-sizing:border-box}
     #b{pointer-events:auto;position:fixed;right:20px;bottom:24px;width:48px;height:48px;padding:0;border:3px solid transparent;border-radius:10px;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.25);touch-action:none;transition:border-color .2s}
     #b img{height:30px;width:auto;pointer-events:none;display:block}
+    #n{position:absolute;top:-8px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#C2000C;color:#fff;font:700 11.5px/20px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 0 0 2px #fff}
+    #n[hidden]{display:none}
     #b:hover{filter:brightness(.96)} #b:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px} #b.arr{cursor:grabbing}
     #v{pointer-events:auto;position:fixed;inset:0;background:#0B1015}
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
   </style>
-  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"></button>
+  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"><span id="n" hidden></span></button>
   <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"></div>`;
   document.documentElement.appendChild(host);
-  const b = root.getElementById('b'), v = root.getElementById('v');
+  const b = root.getElementById('b'), v = root.getElementById('v'), nBadge = root.getElementById('n');
   let frame = null;
 
   const aberto = () => !v.hidden;
@@ -65,8 +67,14 @@
   window.addEventListener('message', e => { if (frame && e.source === frame.contentWindow && e.origin === ORIGEM && e.data && e.data.tipo === 'controlmon-fechar') fechar(); });
   chrome.runtime.onMessage.addListener(m => { if (m && m.tipo === 'controlmon-alternar') alternar(); });
 
+  // Ponto vermelho com o número de pendências NOVAS ainda não vistas (histórico, fase 6). Só mostra; quem marca como vista é o painel.
+  const marcaNovas = h => { const n = ((h && h.novas) || []).filter(x => !x.visto).length; nBadge.hidden = !n; nBadge.textContent = n > 99 ? '99+' : String(n); b.title = n ? `Hub de Monitoramento · ${n} pendência${n > 1 ? 's' : ''} nova${n > 1 ? 's' : ''} (Alt+Shift+M)` : 'Hub de Monitoramento (Alt+Shift+M)'; };
+  try {
+    chrome.storage.local.get('monitor-historico').then(r => marcaNovas(r['monitor-historico']));
+    chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch['monitor-historico']) marcaNovas(ch['monitor-historico'].newValue); });
+  } catch (e) { /* sem storage */ }
   // Leitura automática do Onvio em segundo plano (sem clique). O andamento aparece na dica e na cor da bolinha.
-  const dica = 'Hub de Monitoramento (Alt+Shift+M)';
+  const dica = 'Hub de Monitoramento (Alt+Shift+M)';   // o estado da leitura troca a dica; o contador de novas usa o título quando não há leitura em curso
   function estado(e) {
     b.title = e.estado === 'rodando' ? `${dica}\nLendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? `${dica}\n${e.msg}` : e.estado === 'cliente' ? dica : `${dica}\nLeitura: ${e.msg || e.estado}`;
     b.style.borderColor = e.estado === 'rodando' ? '#B5530C' : 'transparent';   // laranja enquanto lê

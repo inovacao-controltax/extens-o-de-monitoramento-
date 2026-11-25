@@ -4,6 +4,7 @@ import { analyze, checkNotificacoesOnvio, silenciadaAgora } from '../src/rules.j
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot } from '../src/snapshot.js';
+import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv } from '../src/historico.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -25,6 +26,7 @@ const I = {
   x: ic('<path d="M6 6l12 12M18 6L6 18"/>'),
 };
 $('themeBtn').innerHTML = I.moon;
+const sino = () => { const n = naoVistas(hist).length; $('bell').innerHTML = I.bell + (n ? `<span class="cnt" style="position:absolute;top:-4px;right:-4px">${n > 99 ? '99+' : n}</span>` : ''); $('bell').style.position = 'relative'; $('bell').setAttribute('aria-label', n ? `Alertas: ${n} novas` : 'Alertas'); };
 $('bell').innerHTML = I.bell;
 $('fechar').innerHTML = I.x;
 $('cfgBtn').innerHTML = I.gear;
@@ -62,7 +64,7 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
-let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
+let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, hist = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
@@ -77,7 +79,7 @@ const coletadoEm = () => (real() ? Math.max(real().coletadoEm, real().rapidaEm |
 const fonteNome = () => (!real() && gsnap && !lendoSemDados() ? 'Dados do Gestta' : real() ? (real().lendo ? 'Lendo o Onvio ao vivo' : 'Dados do Onvio') : lendoSemDados() ? 'Lendo o Onvio…' : 'Dados de exemplo');
 const hora = () => new Date(coletadoEm()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 function recadoAndamento() {
-  if (!andamento) return [];
+  if (!andamento) return real() ? [] : [{ id: 'semleitura', titulo: 'A extensão ainda não leu o Onvio neste navegador', texto: 'Abra o Onvio (Portal do Cliente, visão do escritório) e recarregue a página (F5): a leitura começa sozinha. Depois de atualizar a extensão, recarregue também as abas do Onvio já abertas.' }];
   if (andamento.estado === 'rodando') return [{ id: 'lendo', titulo: 'Lendo o Onvio agora', texto: `${andamento.msg || 'Em andamento'}. Pode usar o Onvio normalmente; os números atualizam sozinhos.` }];
   if (andamento.estado === 'sem_sessao') return [{ id: 'semsessao', titulo: 'Leitura automática parada', texto: `${andamento.msg}. Entre no Onvio com o usuário do escritório; tenta de novo em até 30 min.` }];
   if (andamento.estado === 'erro') return [{ id: 'erroleitura', titulo: 'A leitura automática falhou', texto: `${andamento.msg}. Abra Coleta do Onvio e use "Testar leitura" para ver o motivo.` }];
@@ -181,7 +183,7 @@ function hojeHtml() {
   const recados = recadosAtuais().filter(r => !state.dispensados.has(r.id));
   const notes = `<div class="card notes"><h2>${I.info} Recados <span class="count">${recados.length}</span></h2>${recados.map(r => `<div class="note"><div><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p></div><button type="button" data-dismiss="${r.id}" aria-label="Dispensar recado">${I.x}</button></div>`).join('') || '<div class="note"><p>Sem recados.</p></div>'}</div>`;
   const metrics = `<div class="metrics">${KEYS.map(k => `<button type="button" class="metric ${data(k).length ? 'has' : ''}" data-go="${k}"><span>${esc(TABS[k].label)}</span><span class="count">${data(k).length}</span>${I.info}</button>`).join('')}</div>`;
-  return `<div class="toolbar"><span class="grow">${n} pendências</span><button class="btn" id="exp" type="button" disabled title="Exportação na Fase 7">Exportar CSV</button></div>
+  return `<div class="toolbar"><span class="grow">${n} pendências</span><button class="btn" id="exp" type="button" title="Baixa as pendências que estão na tela (respeita busca e setor)">Exportar CSV</button></div>
     <div class="grid3">${hero}<div class="card"><h2>Próximos passos <span class="count">${Math.min(3, all.length)}</span></h2>${steps}</div>${notes}</div>${metrics}${KEYS.map(blockHtml).join('')}`;
 }
 
@@ -218,6 +220,7 @@ function render(animar = false) {
   v.querySelectorAll('[data-go]').forEach(e => e.addEventListener('click', () => go(e.dataset.go)));
   v.querySelectorAll('[data-blk]').forEach(e => e.addEventListener('click', () => { state.open[e.dataset.blk] = !state.open[e.dataset.blk]; render(); }));
   v.querySelectorAll('[data-dismiss]').forEach(e => e.addEventListener('click', () => { state.dispensados.add(e.dataset.dismiss); render(); }));
+  v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-sil]').forEach(e => e.addEventListener('click', () => abrirSilenciar(e.dataset.sil)));
   v.querySelectorAll('[data-sil-ver]').forEach(e => e.addEventListener('click', abrirSilenciadas));
   v.querySelectorAll('[data-clear]').forEach(e => e.addEventListener('click', () => { $('search').value = ''; state.setor = 'Todos'; render(); }));
@@ -257,12 +260,38 @@ function abrirSilenciadas() {
   d.querySelector('#sil-fecha').addEventListener('click', () => d.close());
   d.querySelectorAll('[data-volta]').forEach(b => b.addEventListener('click', async () => { if (await salvarSilenciadas((cfg.silenciadas || []).filter(x => x.cnpj !== b.dataset.volta))) { d.close(); toast('Voltou a ser acompanhada'); } }));
 }
+// Exportar o que está na tela (respeita busca e setor) para o Excel.
+function exportarCsv() {
+  const linhas = [['Monitor', 'Empresa ou funcionário', 'CNPJ', 'Detalhe']];
+  KEYS.forEach(k => data(k).forEach(r => linhas.push([TABS[k].label, r.empresa || r.nome || '', r.cnpj ? formatCnpj(r.cnpj) : '', TABS[k].step(r)[1]])));
+  if (linhas.length === 1) return toast('Nada para exportar neste filtro', 'warn');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([paraCsv(linhas)], { type: 'text/csv;charset=utf-8' }));
+  a.download = `pendencias-portal-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(`${linhas.length - 1} linhas exportadas`);
+}
+// Alertas: o que apareceu de novo desde a última vez e como cada monitor evolui (fase 6).
+function abrirAlertas() {
+  const nv = ((hist && hist.novas) || []).slice().sort((a, b) => Number(a.visto) - Number(b.visto) || String(b.em).localeCompare(String(a.em)));
+  const lab = k => (TABS[k] || {}).label || k;
+  const quando = iso => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const lista = nv.length ? `<ul style="list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:42vh;overflow:auto">${nv.slice(0, 80).map(n => `<li style="display:flex;gap:8px;align-items:baseline;${n.visto ? 'opacity:.7' : ''}">${n.visto ? '' : '<span class="badge s-late">Nova</span>'}<span style="flex:1"><b>${esc(lab(n.k))}</b> · ${esc(n.texto)}</span><small class="muted">${quando(n.em)}</small></li>`).join('')}</ul>${nv.length > 80 ? `<p class="note-txt">e mais ${nv.length - 80}</p>` : ''}`
+    : '<p class="note-txt" style="margin:0">Nada novo desde a leitura anterior.</p>';
+  const ev = evolucao(hist, 7).filter(e => TABS[e.k]);
+  const evol = ev.length ? `<div class="tbl-wrap"><table><thead><tr><th>Monitor</th><th class="num r">Agora</th><th class="num r">Há 7 dias</th><th class="num r">Variação</th></tr></thead><tbody>${ev.map(e => `<tr><td>${esc(lab(e.k))}</td><td class="num r">${e.agora}</td><td class="num r">${e.antes ?? '—'}</td><td class="num r">${e.delta === null ? '—' : e.delta > 0 ? `<span class="badge s-late">+${e.delta}</span>` : e.delta < 0 ? `<span class="badge s-ok">${e.delta}</span>` : '0'}</td></tr>`).join('')}</tbody></table></div><p class="note-txt" style="margin:0">Compara com a leitura mais próxima de 7 dias atrás${hist.serie && hist.serie.length ? ` (histórico desde ${quando(hist.serie[0].em)})` : ''}.</p>` : '<p class="note-txt" style="margin:0">O histórico começa na primeira leitura completa; a evolução aparece com o passar dos dias.</p>';
+  const d = dialogo(`<div class="dlg-body" style="display:grid;gap:14px;min-width:min(660px,92vw)"><h2 style="margin:0">Alertas</h2>
+    <section style="display:grid;gap:8px"><h3 class="sub-h" style="margin:0">Novas desde a leitura anterior</h3>${lista}</section>
+    <section style="display:grid;gap:8px"><h3 class="sub-h" style="margin:0">Evolução dos monitores</h3>${evol}</section>
+    <div class="row" style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn" id="al-vistas" ${naoVistas(hist).length ? '' : 'disabled'}>Marcar como vistas</button><button type="button" class="btn btn-primary" id="al-fecha">Fechar</button></div></div>`);
+  d.querySelector('#al-fecha').addEventListener('click', () => d.close());
+  d.querySelector('#al-vistas').addEventListener('click', async () => { try { await chrome.storage.local.set({ [CHAVE_HIST]: marcarVistas(hist) }); } catch (e) { /* fora da extensão */ } hist = marcarVistas(hist); sino(); d.close(); toast('Marcadas como vistas'); });
+}
 function go(k) { state.view = k; render(true); window.scrollTo(0, 0); }
 
 $('search').addEventListener('input', () => { if (state.view !== 'config' && state.view !== 'coleta') render(); });
 $('cfgBtn').addEventListener('click', () => go('config'));
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('search').focus(); } });
-$('bell').addEventListener('click', () => toast('Sem alertas novos'));
+$('bell').addEventListener('click', () => abrirAlertas());
 $('refresh').addEventListener('click', () => go('coleta'));
 $('themeBtn').addEventListener('click', () => {
   const el = document.documentElement, cur = el.getAttribute('data-theme');
@@ -300,6 +329,7 @@ try {
     if (area !== 'local') return;
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
     if (ch['monitor-notificacoes-estado']) { nestado = ch['monitor-notificacoes-estado'].newValue || null; recompute(); renderSuave(); }
+    if (ch[CHAVE_HIST]) { hist = ch[CHAVE_HIST].newValue || null; sino(); }
     if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
     if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
@@ -308,6 +338,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes']).then(r => { ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_HIST]).then(r => { hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }

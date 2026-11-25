@@ -15,3 +15,8 @@ Desde a 0.10.0 a extensão puxa a lista de clientes treinados direto do Hub, sem
 **Solicitações:** leitura só de GET, a cada hora, só das empresas treinadas: as 10 listas por "última atualização" até sair da janela de 30 dias e os trâmites das solicitações dessas empresas. O lado de cada trâmite (cliente ou escritório) vem da situação que ele gravou, a mesma regra do Control Onvio. Guarda só CNPJ → data (`monitor-solicitacoes`).
 **Silenciar:** o botão em cada linha tira a empresa da lista por 15, 30, 60 ou 90 dias, ou sem data, com motivo (sem movimento, férias coletivas…). Vencida a data, ela volta sozinha; "Ver silenciadas" lista e devolve.
 **A conferir no Onvio real:** a regra de lado do trâmite e o campo `clientExpanded.code` nas 10 listas.
+
+## Histórico e alertas (0.12.0)
+A cada leitura nova a extensão compara as pendências com as da leitura anterior (`monitor-historico`: só chaves e contagens, 14 dias). O que **apareceu de novo** vira "Nova" no sino do painel e num ponto vermelho com o número na bolinha sobre o Onvio; **Marcar como vistas** zera o aviso. O painel também mostra a evolução de cada monitor contra 7 dias atrás. A primeira leitura de cada monitor só marca o ponto de partida (nada é novo) e uma leitura em andamento não vira "tudo novo". **Exportar CSV** (tela Hoje) baixa as pendências que estão na tela, respeitando busca e setor.
+
+**Ordem das leituras (0.12.0):** um ciclo por vez: notificações da equipe e treinados do Hub (leves), depois a leitura principal das empresas e só então as Solicitações e o histórico. Nada roda em paralelo com a leitura principal, e as Solicitações nunca refazem a lista de clientes.
