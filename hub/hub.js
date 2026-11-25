@@ -60,7 +60,7 @@ const TABS = {
 const KEYS = Object.keys(TABS);
 
 let cfg = null, snap = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
-const VELHO_H = 6;
+const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => (snap && snap.fonte === 'onvio' ? snap : null);
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
 const source = () => (real() ? { docs: real().docs, users: [], trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
@@ -95,7 +95,7 @@ function recadosBase() {
   out.push({ id: 'gestta', titulo: 'Notificações ainda não lidas', texto: 'O monitor de notificações usa o Gestta e chega na próxima fase.' });
   return out;
 }
-const state = { view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), dispensados: new Set() };
+const state = { lim: {}, view: 'hoje', setor: 'Todos', open: Object.fromEntries(KEYS.map(k => [k, true])), dispensados: new Set() };
 const term = () => $('search').value.trim().toLowerCase();
 const data = k => R[k].filter(r => {
   const s = TABS[k].setores(r).filter(Boolean);
@@ -107,14 +107,31 @@ const total = () => KEYS.reduce((n, k) => n + data(k).length, 0);
 
 function toast(m, kind = 'ok') { const t = $('toast'); t.textContent = m; t.dataset.kind = kind; t.classList.add('show'); clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), 4000); }
 
+let navAnt = '', segAnt = '', htmlAnt = '', vistaAnt = '';
+function atualizarPill() {
+  const pill = document.querySelector('.pill-status'), fill = $('ringFill');
+  const rod = !!andamento && andamento.estado === 'rodando';
+  const lendoSnap = !!real() && !!real().lendo && !rod;
+  let pct = 0, linha = `coletado ${hora()}`, indet = false;
+  if (rod) {
+    const f = andamento.feito || 0, t = andamento.total || 0;
+    if (t > 0) { pct = Math.round((f / t) * 100); linha = andamento.rapida ? `treinadas ${f}/${t}` : `${f} de ${t} · ${pct}%`; }
+    else { indet = true; linha = 'lendo a lista…'; }
+  } else if (lendoSnap) { const q = real().qualidade; pct = q.empresas ? Math.round((q.lidas / q.empresas) * 100) : 0; linha = `${q.lidas} de ${q.empresas} · ${pct}%`; }
+  else if (real()) pct = 100;
+  pill.classList.toggle('lendo', rod || lendoSnap); pill.classList.toggle('indet', indet);
+  fill.style.strokeDashoffset = String(indet ? 75 : 100 - pct);
+  $('fonteNome').textContent = fonteNome(); $('stamp').textContent = linha;
+  pill.title = rod ? (andamento.msg || '') : '';
+}
 function renderNav() {
   const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, data(k).length]), ['coleta', 'Coleta do Onvio', I.sync, 0]];
-  $('nav').innerHTML = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('');
-  $('nav').querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.k)));
+  const navHtml = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('');
+  if (navHtml !== navAnt) { navAnt = navHtml; $('nav').innerHTML = navHtml; $('nav').querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.k))); }
   if (state.view === 'config') $('cfgBtn').setAttribute('aria-current', 'page'); else $('cfgBtn').removeAttribute('aria-current');
   $('seg').hidden = state.view === 'config' || state.view === 'coleta';
-  $('seg').innerHTML = SETORES.map(s => `<button type="button" aria-pressed="${s === state.setor}" data-s="${s}">${s}</button>`).join('');
-  $('seg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.setor = b.dataset.s; render(); }));
+  const segHtml = SETORES.map(s => `<button type="button" aria-pressed="${s === state.setor}" data-s="${s}">${s}</button>`).join('');
+  if (segHtml !== segAnt) { segAnt = segHtml; $('seg').innerHTML = segHtml; $('seg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.setor = b.dataset.s; render(); })); }
 }
 
 function tableHtml(k) {
@@ -124,7 +141,7 @@ function tableHtml(k) {
   if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;
   return `<div class="tbl-wrap"><table><thead><tr>${t.cols.map(([n, c = '']) => `<th class="${c}">${n}</th>`).join('')}</tr></thead><tbody>${
-    rows.map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${rows.length} de ${R[k].length} itens</span><span>Fonte: ${fonteNome().toLowerCase()}</span></div>`;
+    rows.slice(0, state.lim[k] || LIM).map(r => `<tr>${t.row(r).map((c, i) => `<td class="${t.cols[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, state.lim[k] || LIM)} de ${rows.length} itens${rows.length > (state.lim[k] || LIM) ? ` · <button class="btn btn-sm" data-mais="${k}" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span>Fonte: ${fonteNome().toLowerCase()}</span></div>`;
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
@@ -153,11 +170,11 @@ function hojeHtml() {
     <div class="grid3">${hero}<div class="card"><h2>Próximos passos <span class="count">${Math.min(3, all.length)}</span></h2>${steps}</div>${notes}</div>${metrics}${KEYS.map(blockHtml).join('')}`;
 }
 
-function render() {
+function render(animar = false) {
   if (state.view === 'config') {
     $('title').textContent = 'Configurações';
     $('sub').textContent = 'Padrões e listas usados nas verificações';
-    $('stamp').textContent = `coletado ${hora()}`; $('fonteNome').textContent = fonteNome();
+    atualizarPill(); htmlAnt = ''; vistaAnt = 'config';
     $('view').innerHTML = '<div class="reveal" id="cfgRoot"></div>';
     renderConfig($('cfgRoot'), { toast, onSaved: c => { cfg = structuredClone(c); recompute(); renderNav(); } });
     return renderNav();
@@ -165,26 +182,33 @@ function render() {
   if (state.view === 'coleta') {
     $('title').textContent = 'Coleta do Onvio';
     $('sub').textContent = 'Leitura do portal pela sua sessão, só leitura';
-    $('stamp').textContent = `coletado ${hora()}`; $('fonteNome').textContent = fonteNome();
+    atualizarPill(); htmlAnt = ''; vistaAnt = 'coleta';
     $('view').innerHTML = '<div class="reveal" id="coletaRoot"></div>';
-    renderColeta($('coletaRoot'), { toast, onChanged: async () => { snap = await loadSnapshot(); recompute(); renderNav(); $('stamp').textContent = `coletado ${hora()}`; $('fonteNome').textContent = fonteNome(); } });
+    renderColeta($('coletaRoot'), { toast, onChanged: async () => { snap = await loadSnapshot(); recompute(); renderNav(); atualizarPill(); } });
     return renderNav();
   }
   const hoje = state.view === 'hoje';
   $('title').textContent = hoje ? 'Hoje' : TABS[state.view].label;
   $('sub').textContent = hoje ? 'Portal do Cliente · ControlTax' : TABS[state.view].hint;
-  $('stamp').textContent = `coletado ${hora()}`; $('fonteNome').textContent = fonteNome();
-  $('view').innerHTML = `<div class="reveal">${hoje ? hojeHtml() : `<div class="toolbar"><span class="grow">${data(state.view).length} itens</span></div>${blockHtml(state.view)}`}</div>`;
+  atualizarPill();
+  const html = hoje ? hojeHtml() : `<div class="toolbar"><span class="grow">${data(state.view).length} itens</span></div>${blockHtml(state.view)}`;
+  // Atualização automática (leitura ao vivo): sem animação, sem perder a rolagem e sem refazer o que não mudou.
+  if (!animar && html === htmlAnt && vistaAnt === state.view) return renderNav();
+  const y = window.scrollY;
+  htmlAnt = html; vistaAnt = state.view;
+  $('view').innerHTML = `<div class="${animar ? 'reveal' : ''}">${html}</div>`;
+  if (!animar) window.scrollTo(0, y);
   const v = $('view');
+  v.querySelectorAll('[data-mais]').forEach(e => e.addEventListener('click', () => { state.lim[e.dataset.mais] = (state.lim[e.dataset.mais] || LIM) + LIM; render(false); }));
   v.querySelectorAll('[data-go]').forEach(e => e.addEventListener('click', () => go(e.dataset.go)));
   v.querySelectorAll('[data-blk]').forEach(e => e.addEventListener('click', () => { state.open[e.dataset.blk] = !state.open[e.dataset.blk]; render(); }));
   v.querySelectorAll('[data-dismiss]').forEach(e => e.addEventListener('click', () => { state.dispensados.add(e.dataset.dismiss); render(); }));
   v.querySelectorAll('[data-clear]').forEach(e => e.addEventListener('click', () => { $('search').value = ''; state.setor = 'Todos'; render(); }));
   renderNav();
 }
-function go(k) { state.view = k; render(); window.scrollTo(0, 0); }
+function go(k) { state.view = k; render(true); window.scrollTo(0, 0); }
 
-$('search').addEventListener('input', () => { if (state.view !== 'config') render(); });
+$('search').addEventListener('input', () => { if (state.view !== 'config' && state.view !== 'coleta') render(); });
 $('cfgBtn').addEventListener('click', () => go('config'));
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('search').focus(); } });
 $('bell').addEventListener('click', () => toast('Sem alertas novos'));
@@ -209,7 +233,7 @@ if (camada) {
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').classList.contains('open')) fechar(); });
 }
 Promise.all([loadConfig(), loadSnapshot()]).then(([c, sn]) => {
-  cfg = c; snap = sn; recompute(); setTimeout(render, 300);
+  cfg = c; snap = sn; recompute(); setTimeout(() => render(true), 300);
 });
 
 // A leitura automática grava a coleta e o andamento no armazenamento: o painel acompanha sozinho, sem clique.
@@ -218,14 +242,14 @@ function renderSuave() {
   if (state.view === 'coleta' || state.view === 'config') return renderNav();
   const falta = 1500 - (Date.now() - ultimoRender);
   if (falta > 0) { if (!aguardandoRender) { aguardandoRender = true; setTimeout(() => { aguardandoRender = false; renderSuave(); }, falta); } return; }
-  ultimoRender = Date.now(); render();
+  ultimoRender = Date.now(); render(false);
 }
 try {
   chrome.storage.onChanged.addListener(async (ch, area) => {
     if (area !== 'local') return;
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
     if (ch['monitor-snapshot']) { snap = await loadSnapshot(); }
-    if (ch['monitor-snapshot'] || ch['monitor-coleta-estado']) { recompute(); renderSuave(); }
+    if (ch['monitor-snapshot'] || ch['monitor-coleta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
