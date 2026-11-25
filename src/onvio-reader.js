@@ -160,12 +160,17 @@ export async function listarClientes(fetcher, { pausa, onLista } = {}) {
 
 // ---------- Documentos ----------
 const URL_PROJETOS = id => `${API}storage/v1/projects?primaryAssociationId=${encodeURIComponent(id)}&primaryAssociationType=Client&getScheduleItems=true`;
-const URL_FILHOS = (tipo, id, de) => `${API}storage/v2/${tipo}/${encodeURIComponent(id)}/children?from=${de}&pageSize=100&sort=name:asc&containersOnly=false&trashed=false&countDocuments=false&calculateLocks=true`;
+let TAM_PAGINA = 500;           // páginas grandes = menos chamadas por pasta; se o Onvio recusar (400/413/422), volta a 100 e lembra
+export const tamanhoDaPagina = () => TAM_PAGINA;
+const URL_FILHOS = (tipo, id, de, n = TAM_PAGINA) => `${API}storage/v2/${tipo}/${encodeURIComponent(id)}/children?from=${de}&pageSize=${n}&sort=name:asc&containersOnly=false&trashed=false&countDocuments=false&calculateLocks=true`;
 
 export async function filhosDe(fetcher, tipo, id, pausa) {      // pausa só no modo suave; no rápido o limite geral cuida do ritmo
   const out = [];
   for (let de = 1, n = 0; n < 20; n++) {
-    const d = await fetcher(URL_FILHOS(tipo, id, de)), lote = listaDe(d);
+    let d;
+    try { d = await fetcher(URL_FILHOS(tipo, id, de)); }
+    catch (e) { if (TAM_PAGINA > 100 && /HTTP (400|413|422)/.test(String(e && e.message))) { TAM_PAGINA = 100; d = await fetcher(URL_FILHOS(tipo, id, de, 100)); } else throw e; }
+    const lote = listaDe(d);
     out.push(...lote);
     const pag = (d && d.data && !Array.isArray(d.data) ? d.data : d) || {};
     if (!lote.length || !(pag.hasMore === true || (pag.hasMore == null && lote.length >= 100))) break;
@@ -270,7 +275,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   if (prioridade && prioridade.size) alvo = [...alvo.filter(c => prioridade.has(c.cnpj)), ...alvo.filter(c => !prioridade.has(c.cnpj))];
   alvo = alvo.slice(0, limite > 0 ? limite : undefined);
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
-  let i = 0, fatal = null, ultimo = 0;                       // o 1º parcial sai logo depois da 1ª empresa
+  let i = 0, fatal = null, ultimo = 0; const falhadas = [];                       // o 1º parcial sai logo depois da 1ª empresa
   const resumo = (lista) => { const x = { ...q }; x.docs = lista.filter(d => d.arquivo).length; x.origemIndefinida = lista.filter(d => d.arquivo && d.origem === 'indefinida').length; return x; };
   async function trabalhador() {
     while (!fatal) {
@@ -281,7 +286,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
         docs.push(...r.docs); q.lidas++;
         if (!r.projetos) q.semProjeto++;
         if (r.truncado) q.truncadas++;
-      } catch (e) { if (e instanceof AuthError) { fatal = e; return; } q.falhas++; }
+      } catch (e) { if (e instanceof AuthError) { fatal = e; return; } q.falhas++; falhadas.push(c); }
       if (!c.cnpj) q.semCnpj++;
       if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
       // cadência adaptativa: quanto mais linhas já lidas, mais caro é entregar um parcial
@@ -294,6 +299,22 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
     }
   }
   await Promise.all(Array.from({ length: Math.max(1, paralelo) }, trabalhador));
+  // Confiabilidade: o que falhou (rede, 5xx) é lido de novo, uma vez, no fim; só o que falhar de novo conta como falha.
+  if (!fatal && falhadas.length && !(parar && parar())) {
+    q.recuperadas = 0;
+    const restantes = falhadas.splice(0);
+    await Promise.all(Array.from({ length: Math.min(3, restantes.length) }, async () => {
+      for (let c; (c = restantes.shift()) && !fatal;) {
+        try {
+          const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido });
+          docs.push(...r.docs); q.lidas++; q.falhas--; q.recuperadas++;
+          if (!r.projetos) q.semProjeto++;
+          if (r.truncado) q.truncadas++;
+        } catch (e) { if (e instanceof AuthError) { fatal = e; return; } }
+        if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
+      }
+    }));
+  }
   if (fatal) throw fatal;
   const aut = classificarAutores(docs);
   const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut });

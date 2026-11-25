@@ -38,6 +38,8 @@ export async function puxarTreinados() {
     const r = await chrome.runtime.sendMessage({ tipo: 'puxar-treinados' });
     if (!r || !r.ok) return grava({ ok: false, motivo: (r && r.motivo) || 'erro', msg: msg(r || {}) });
     const { rows, descartadas } = treinadosParaConfig(r.treinados);
+    // Nunca troca uma lista que existe por uma vazia: se o Hub não devolveu nenhuma empresa (ainda carregando, sem permissão...), mantém a atual.
+    if (!rows.length) return grava({ ok: false, motivo: 'vazia', msg: 'O Hub não devolveu nenhuma empresa 100% treinada. Mantive a lista atual; confira se o Hub terminou de carregar e tente de novo.' });
     const nova = { ...(await loadConfig()), trained: rows };
     const s = await saveConfig(nova);
     if (!s.ok) return grava({ ok: false, motivo: 'salvar', msg: 'Não foi possível salvar a lista.' });

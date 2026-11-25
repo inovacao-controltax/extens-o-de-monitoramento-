@@ -1,6 +1,6 @@
 // Mantém o histórico em dia sem abrir o painel: a cada leitura nova, compara as pendências com as da vez anterior (fase 6).
 import { loadConfig } from './config.js';
-import { loadSnapshot } from './snapshot.js';
+import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel } from './snapshot.js';
 import { analyze } from './rules.js';
 import { CHAVE_HIST, atualizarHistorico } from './historico.js';
 import { assinaturaTreinadas } from './solicitacoes.js';
@@ -11,7 +11,7 @@ export async function rodarHistorico() {
   if (rodando) return;
   rodando = true;
   try {
-    const cfg = await loadConfig(), snap = await loadSnapshot();
+    const cfg = await loadConfig(), snap = snapshotEstavel(await loadSnapshot(), await loadSnapshotCompleto());   // lendo: compara com a última completa, nunca com um parcial
     const r = await st().get(['monitor-notificacoes', 'monitor-solicitacoes', CHAVE_HIST]);
     const notif = r['monitor-notificacoes'] || null, solic = r['monitor-solicitacoes'] || null, h = r[CHAVE_HIST] || null;
     const real = snap && snap.fonte === 'onvio' && !snap.lendo && snap.qualidade && snap.qualidade.lidas > 0;

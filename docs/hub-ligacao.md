@@ -23,3 +23,10 @@ A cada leitura nova a extensão compara as pendências com as da leitura anterio
 
 ## Leitura mais rápida (0.13.0)
 Mesmo resultado, em menos tempo: 8 empresas por vez (antes 4), as pastas da mesma empresa lidas juntas (4 por vez, antes uma de cada vez) e sem as pausas fixas entre pastas, páginas e empresas. Um **limite geral de 10 chamadas ao Onvio ao mesmo tempo** protege a conta: se o Onvio responder 429/502/503/504, o limite cai pela metade (mínimo 2) e volta a subir de um em um depois de 25 respostas boas. Numa API simulada com latência, 100 empresas com o mesmo número de chamadas e os mesmos 16.200 arquivos foram lidas **5,4 vezes mais rápido** (25,2 s contra 4,6 s em escala 1/10). O ganho real no Onvio depende da latência dele; a conferir com as 1.056 empresas.
+
+## Confiabilidade e velocidade (0.14.0)
+- **Números estáveis:** a leitura em andamento grava parciais; o painel passa a mostrar a **última coleta completa** (`monitor-snapshot-completo`) enquanto a nova não termina, e troca só quando ela termina. Na primeira leitura (sem completa) os números ainda crescem e a tela avisa.
+- **Últimos envios:** nova tela no menu com todas as empresas lidas e a data do último arquivo do cliente (e, nas treinadas, da última atividade em Solicitações), das que estão há mais tempo sem enviar para as mais recentes; as treinadas aparecem mesmo sem nada lido.
+- **Lista de treinados vazia:** o monitor diz o que fazer, com o botão **Puxar do Hub agora**; e **nunca** troca uma lista existente por uma vazia vinda do Hub.
+- **Velocidade:** 12 empresas por vez, limite geral de 16 chamadas ao Onvio (cai pela metade em 429/502/503/504), páginas de 500 itens por pasta (volta a 100 e lembra se o Onvio recusar) e previsão de término na barra ("faltam ~N min"). Na simulação, 8,6 vezes mais rápido, mesmo resultado.
+- **Segunda chance:** a empresa que falha na leitura é lida de novo no fim; só falha de verdade quem falhar duas vezes (`recuperadas` no resumo da leitura).

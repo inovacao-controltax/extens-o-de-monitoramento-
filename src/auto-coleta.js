@@ -5,15 +5,15 @@
 // Para sozinha com acesso de cliente, se a sessão cair ou se o Onvio pedir calma. Uma trava impede duas abas lendo ao mesmo tempo.
 import { guardar, limitado, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
-import { loadSnapshot, saveSnapshot } from './snapshot.js';
+import { loadSnapshot, saveSnapshot, saveSnapshotCompleto } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
 import { lerEnviosPorSolicitacao, assinaturaTreinadas } from './solicitacoes.js';
 import { rodarHistorico } from './historico-auto.js';
 
 export const CHAVE_ESTADO = 'monitor-coleta-estado', CHAVE_TRAVA = 'monitor-coleta-trava', CHAVE_CLIENTES = 'monitor-clientes';
 export const CHAVE_NOTIF = 'monitor-notificacoes';
-const PARALELO = 8;            // empresas lidas ao mesmo tempo (as chamadas de todas passam pelo limite geral abaixo)
-const LIMITE_GERAL = 10;       // chamadas ao Onvio ao mesmo tempo; cai pela metade sozinho se o Onvio pedir calma (429/503)
+const PARALELO = 12;           // empresas lidas ao mesmo tempo (as chamadas de todas passam pelo limite geral abaixo)
+const LIMITE_GERAL = 16;       // chamadas ao Onvio ao mesmo tempo; cai pela metade sozinho se o Onvio pedir calma (429/503)
 const pausa = ms => new Promise(r => setTimeout(r, ms));
 const st = () => chrome.storage.local;
 const idAba = Math.random().toString(36).slice(2);
@@ -35,6 +35,12 @@ const brutoPagina = async url => { try { return (await chrome.runtime.sendMessag
 const criarFetcher = () => { const base = fetcherComFallback([{ via: 'página (mesma origem)', f: brutoIsolado }, { via: 'página do Onvio (mundo da página)', f: brutoPagina }]); return { base, f: limitado(guardar(base), { max: LIMITE_GERAL }) }; };
 const compactos = cl => cl.map(c => ({ ids: c.ids, codigo: c.codigo, nome: c.nome, cnpj: c.cnpj, inativo: c.inativo }));
 
+/** " · faltam ~N min" depois de algumas empresas lidas (só estimativa pelo ritmo até agora). */
+export function previsao(t0, feito, total, agora = Date.now()) {
+  if (feito < 15 || !total || feito >= total) return '';
+  const min = Math.ceil(((agora - t0) / feito) * (total - feito) / 60000);
+  return ` · faltam ~${min < 1 ? 1 : min} min`;
+}
 let rodando = false;
 /** Leitura completa (ao vivo). */
 async function leituraCompleta(cfg, avisa) {
@@ -46,11 +52,14 @@ async function leituraCompleta(cfg, avisa) {
   const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
   const prioridade = new Set((cfg.trained || []).map(t => t.cnpj));
   const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
+  const t0 = Date.now();
   avisa({ estado: 'rodando', feito: 0, total: ativas, msg: `0 de ${ativas} empresas` });
   const r = await coletar(f, clientes, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true, prioridade,
-    onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `${p.feito} de ${p.total} empresas` }); },
+    onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `${p.feito} de ${p.total} empresas${previsao(t0, p.feito, p.total)}` }); },
     onParcial: async p => { await saveSnapshot(montar(p, true)); } });
-  await saveSnapshot(montar(r, !!r.qualidade.interrompida));
+  const final = montar(r, !!r.qualidade.interrompida);
+  await saveSnapshot(final);
+  if (!final.parcial) await saveSnapshotCompleto(final);                 // só uma leitura que terminou vira o "último resultado completo"
   avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: ativas, msg: `Leitura concluída: ${r.qualidade.lidas} empresas` });
 }
 /** Releitura rápida: só as empresas prioritárias (treinadas), trocando as linhas delas no que já foi lido. */
@@ -66,7 +75,9 @@ async function leituraRapida(cfg, snap, avisa) {
     onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `Atualizando treinadas: ${p.feito} de ${p.total}`, rapida: true }); } });
   const atual = await loadSnapshot();
   const base = atual && atual.fonte === 'onvio' ? atual : snap;
-  await saveSnapshot({ ...base, docs: mesclarEmpresas(base.docs, r.docs, alvo.map(c => c.cnpj)), rapidaEm: Date.now() });
+  const novo = { ...base, docs: mesclarEmpresas(base.docs, r.docs, alvo.map(c => c.cnpj)), rapidaEm: Date.now() };
+  await saveSnapshot(novo);
+  if (!novo.lendo && !novo.parcial) await saveSnapshotCompleto(novo);
   avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: alvo.length, msg: `Treinadas atualizadas: ${r.qualidade.lidas}`, rapida: true });
 }
 

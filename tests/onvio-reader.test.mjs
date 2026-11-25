@@ -482,3 +482,47 @@ test('modo rápido dá exatamente o mesmo resultado do modo normal (só chega an
   assert.deepEqual(k(b), k(a));
   assert.equal(b.qualidade.lidas, 12); assert.equal(b.qualidade.falhas, 0);
 });
+
+// ---- Confiabilidade e velocidade (0.14.0) ----
+import { tamanhoDaPagina } from '../src/onvio-reader.js';
+import { previsao } from '../src/auto-coleta.js';
+test('página grande: se o Onvio recusar (400) volta a 100 e lembra; o resultado não muda', async () => {
+  const tamanhos = [];
+  const f = async url => {
+    const n = Number(new URL(url).searchParams.get('pageSize')); tamanhos.push(n);
+    if (n > 100) throw new Error('HTTP 400');
+    return { items: [{ id: 'a', name: 'x.pdf', itemType: 'Document' }] };
+  };
+  assert.equal(tamanhoDaPagina(), 500);
+  const r = await filhosDe(f, 'Projects', 'p1');
+  assert.equal(r.length, 1);
+  assert.deepEqual(tamanhos, [500, 100]);
+  assert.equal(tamanhoDaPagina(), 100);
+  await filhosDe(f, 'Projects', 'p2');
+  assert.deepEqual(tamanhos.slice(2), [100]);            // já lembrou: não tenta 500 de novo
+});
+test('empresa que falhou é lida de novo no fim: só falha de verdade quem falhar duas vezes', async () => {
+  const falhou = new Set();
+  const api = async url => {
+    const u = new URL(url), p = u.pathname.slice(5);
+    if (/^storage\/v1\/projects$/.test(p)) {
+      const c = u.searchParams.get('primaryAssociationId');
+      if (c === '2' && !falhou.has(c)) { falhou.add(c); throw new Error('HTTP 503'); }       // cai na 1ª vez e se recupera
+      if (c === '3') throw new Error('HTTP 500');                                              // nunca volta
+      return { items: [{ id: 'P' + c, name: 'Fiscal' }] };
+    }
+    if (/\/children$/.test(p)) return { items: [{ id: 'd', name: 'a.pdf', itemType: 'Document', createdDate: '2026-11-01T10:00:00Z', createdBy: { userGuid: 'g' } }] };
+    return { items: [] };
+  };
+  const cl = [1, 2, 3].map(i => ({ ids: [String(i)], codigo: String(i), nome: 'E' + i, cnpj: String(i).padStart(14, '0'), inativo: false }));
+  const r = await coletar(guardar(api), cl, { conhecidas: ['Fiscal'], descer: ['Fiscal'], pausa: () => esp(0), paralelo: 2, rapido: true });
+  assert.equal(r.qualidade.lidas, 2); assert.equal(r.qualidade.falhas, 1); assert.equal(r.qualidade.recuperadas, 1);
+  assert.deepEqual(r.docs.map(d => d.cnpj).sort(), ['00000000000001', '00000000000002']);
+});
+test('previsão de término só depois de algumas empresas e nunca no fim', () => {
+  const t0 = 1_000_000;
+  assert.equal(previsao(t0, 5, 1000, t0 + 60000), '');
+  assert.equal(previsao(t0, 100, 1000, t0 + 5 * 60000), ' · faltam ~45 min');
+  assert.equal(previsao(t0, 1000, 1000, t0 + 60000), '');
+  assert.equal(previsao(t0, 999, 1000, t0 + 60000), ' · faltam ~1 min');
+});
