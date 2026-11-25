@@ -1,6 +1,6 @@
 import { SAMPLE } from '../src/mock.js';
 import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
-import { analyze, checkNotificacoesOnvio, silenciadaAgora } from '../src/rules.js';
+import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot } from '../src/snapshot.js';
@@ -153,6 +153,7 @@ function tableHtml(k) {
     const padrao = nsnap.itens.filter(u => u.estado === 'padrao').length, conf = nsnap.itens.filter(u => u.estado === 'configurado').length;
     return `<div class="empty"><b>Ninguém está sem aviso de nova solicitação.</b><p>${conf} funcionário(s) têm configuração salva e todos recebem o aviso (e-mail ou sistema). Outros ${padrao} nunca tiveram a configuração alterada (no Onvio aparecem desmarcados) e não estão sendo contados: marque a opção em Coleta para listá-los.</p></div>`;
   }
+  if (!rows.length && real() && k === 'semEnvio' && cfg.trained.length && !term() && state.setor === 'Todos') return emDiaHtml();
   if (!rows.length && real() && k === 'semEnvio' && !cfg.trained.length) return '<div class="empty"><b>Lista de treinados vazia.</b><p>Cadastre os clientes treinados em Configurações.</p></div>';
   if (!rows.length) return `<div class="empty"><b>${term() || state.setor !== 'Todos' ? 'Nada neste filtro.' : 'Nenhuma pendência neste monitor.'}</b><p>${term() || state.setor !== 'Todos' ? 'Ajuste a busca ou o setor.' : 'Tudo em dia na última coleta.'}</p>${term() || state.setor !== 'Todos' ? '<button class="btn btn-sm" data-clear type="button">Limpar filtros</button>' : ''}</div>`;
   return `<div class="tbl-wrap"><table><thead><tr>${t.cols.map(([n, c = '']) => `<th class="${c}">${n}</th>`).join('')}</tr></thead><tbody>${
@@ -160,6 +161,20 @@ function tableHtml(k) {
 }
 const silAtivas = () => ((cfg && cfg.silenciadas) || []).filter(x => silenciadaAgora(x));
 function silBarHtml() { const n = silAtivas().length; return n ? `<div class="tbl-foot"><span>${n} empresa${n > 1 ? 's' : ''} silenciada${n > 1 ? 's' : ''}</span><button type="button" class="btn btn-sm" data-sil-ver>Ver silenciadas</button></div>` : ''; }
+// Nenhuma treinada sem envio: mostra POR QUE (cada empresa com a última atividade e de onde veio), para dar para conferir a leitura.
+function emDiaHtml() {
+  const src = source(), lista = statusEnvio(src.docs, cfg.trained, new Date(), src.solic).sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
+  const silenciadas = new Set(silAtivas().map(x => x.cnpj));
+  const avisos = [];
+  if (!ssnap) avisos.push('As Solicitações de Serviço ainda não foram lidas: por enquanto só os arquivos contam como envio.');
+  else if (ssnap.semCodigo) avisos.push(`${ssnap.semCodigo} empresa(s) treinada(s) sem código no Onvio: para elas as Solicitações não foram consideradas.`);
+  if (real().lendo) avisos.push('A leitura das empresas ainda está em andamento; as treinadas são lidas primeiro.');
+  const emDia = lista.filter(r => r.dias !== null && r.dias <= cfg.diasSemEnvio).length;
+  const titulo = emDia === lista.length ? (lista.length === 1 ? `A empresa treinada usou o portal nos últimos ${cfg.diasSemEnvio} dias.` : `Todas as ${lista.length} empresas treinadas usaram o portal nos últimos ${cfg.diasSemEnvio} dias.`) : `Nenhuma empresa para acompanhar agora: ${emDia} de ${lista.length} usaram o portal nos últimos ${cfg.diasSemEnvio} dias e as outras estão silenciadas ou em carência desde o treinamento.`;
+  return `<div class="empty"><b>${titulo}</b><p>Confira abaixo a última atividade de cada uma e de onde veio (arquivo enviado ou Solicitação de Serviço).</p></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Última atividade</th><th>Situação</th></tr></thead><tbody>${lista.map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.dias === null ? '<span class="muted">nenhuma registrada</span>' : `há ${r.dias} dias <span class="muted">· ${esc(r.fonte)}</span>`}</td><td>${silenciadas.has(r.cnpj) ? badge('Silenciada', 's-warn') : r.dias === null ? badge('Carência desde o treinamento', 's-warn') : badge('Em dia', 's-ok')}</td></tr>`).join('')}</tbody></table></div>
+    ${avisos.length ? `<p class="note-txt">${avisos.map(esc).join(' ')}</p>` : ''}`;
+}
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
   return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}</div></section>`;
