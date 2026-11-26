@@ -398,6 +398,8 @@ if (camada) {
   document.documentElement.dataset.camada = '1';
   $('fechar').hidden = false;
   const fechar = () => parent.postMessage({ tipo: 'controlmon-fechar' }, '*');
+  const batida = () => { try { parent.postMessage({ tipo: 'controlmon-vivo' }, '*'); } catch (e) { /* sem pai */ } };   // avisa a camada de que o painel está vivo (ela mostra uma saída se parar)
+  batida(); setInterval(batida, 3000);
   $('fechar').addEventListener('click', fechar);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').classList.contains('open')) fechar(); });
 }
