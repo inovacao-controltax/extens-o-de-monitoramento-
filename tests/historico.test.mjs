@@ -65,3 +65,15 @@ test('chaves estáveis e CSV com BOM, ; e aspas', () => {
   assert.equal(csv.split('\r\n')[1], 'Sem envio;"A; ""B"" linha"');
   assert.deepEqual(Object.keys(novoHistorico()).sort(), ['atual', 'bases', 'fontes', 'novas', 'serie', 'v']);
 });
+
+import { resumoDoDia } from '../src/historico.js';
+test('resumo do dia: novidades das últimas 24 h e variação desde ontem', () => {
+  const now = new Date('2026-11-26T12:00:00Z');
+  const h = { v: 1, atual: {}, bases: [], fontes: '',
+    novas: [{ k: 'semEnvio', key: 'a', texto: 'A sem envio', em: '2026-11-26T08:00:00Z', visto: false }, { k: 'semEnvio', key: 'b', texto: 'B sem envio', em: '2026-11-26T09:00:00Z', visto: true }, { k: 'pastas', key: 'c', texto: 'velha', em: '2026-11-20T09:00:00Z', visto: false }],
+    serie: [{ em: '2026-11-25T12:00:00Z', n: { semEnvio: 3, pastas: 1 } }, { em: '2026-11-26T11:00:00Z', n: { semEnvio: 5, pastas: 1 } }] };
+  const r = resumoDoDia(h, now);
+  assert.equal(r.total, 2); assert.deepEqual(r.novas.map(x => [x.k, x.n]), [['semEnvio', 2]]);
+  assert.deepEqual(r.variacao, [{ k: 'semEnvio', agora: 5, delta: 2 }]);
+  assert.deepEqual(resumoDoDia(null, now), { novas: [], variacao: [], total: 0 });
+});

@@ -6,7 +6,7 @@ import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCn
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel } from '../src/snapshot.js';
-import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv } from '../src/historico.js';
+import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -234,6 +234,16 @@ function blockHtml(k) {
   return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}</div></section>`;
 }
 
+// Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
+function resumoDiaHtml() {
+  const r = resumoDoDia(hist, new Date());
+  if (!hist || !(hist.serie || []).length) return '';
+  const nome = k => (TABS[k] ? TABS[k].label : k);
+  const novas = r.novas.filter(x => TABS[x.k]);
+  const linhas = novas.map(x => `<button type="button" class="step ${TABS[x.k].sev}" data-go="${x.k}"><i class="dot"></i><div><b>${x.n} ${x.n === 1 ? 'novo' : 'novos'} em ${esc(nome(x.k))}</b><small>${esc(x.textos.join(' · '))}${x.n > x.textos.length ? ` · e mais ${x.n - x.textos.length}` : ''}</small></div></button>`).join('');
+  const mud = r.variacao.filter(e => TABS[e.k]).map(e => `<span class="chip" title="${esc(nome(e.k))}: ${e.agora} agora">${esc(nome(e.k))} <small>${e.delta > 0 ? '+' : '−'}${Math.abs(e.delta)}</small></span>`).join('');
+  return `<section class="card" style="margin-bottom:12px"><h2>Resumo do dia <span class="count">${novas.reduce((s, x) => s + x.n, 0)}</span></h2>${linhas || '<p class="muted" style="margin:6px 0 0">Nada novo nas últimas 24 horas.</p>'}${mud ? `<div class="inner" style="margin-top:8px"><span>Desde ontem:</span>${mud}</div>` : ''}</section>`;
+}
 function hojeHtml() {
   const n = total();
   const empresasComPend = new Set(KEYS.filter(k => k !== 'notificacoes').flatMap(k => data(k).map(r => r.cnpj))).size;
@@ -252,7 +262,7 @@ function hojeHtml() {
   const recados = recadosAtuais().filter(r => !state.dispensados.has(r.id));
   const notes = `<div class="card notes"><h2>${I.info} Recados <span class="count">${recados.length}</span></h2>${recados.map(r => `<div class="note"><div><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p></div><button type="button" data-dismiss="${r.id}" aria-label="Dispensar recado">${I.x}</button></div>`).join('') || '<div class="note"><p>Sem recados.</p></div>'}</div>`;
   const metrics = `<div class="metrics">${KEYS.map(k => `<button type="button" class="metric ${data(k).length ? 'has' : ''}" data-go="${k}"><span>${esc(TABS[k].label)}</span><span class="count">${data(k).length}</span>${I.info}</button>`).join('')}</div>`;
-  return `<div class="toolbar"><span class="grow">${n} pendências</span><button class="btn" id="exp" type="button" title="Baixa as pendências que estão na tela (respeita busca e setor)">Exportar CSV</button></div>
+  return `${resumoDiaHtml()}<div class="toolbar"><span class="grow">${n} pendências</span><button class="btn" id="exp" type="button" title="Baixa as pendências que estão na tela (respeita busca e setor)">Exportar CSV</button></div>
     <div class="grid3">${hero}<div class="card"><h2>Próximos passos <span class="count">${Math.min(3, all.length)}</span></h2>${steps}</div>${notes}</div>${metrics}${KEYS.map(blockHtml).join('')}`;
 }
 
