@@ -124,7 +124,7 @@ const data = k => R[k].filter(r => {
 });
 const total = () => KEYS.reduce((n, k) => n + data(k).length, 0);
 
-function toast(m, kind = 'ok') { const t = $('toast'); t.textContent = m; t.dataset.kind = kind; t.classList.add('show'); clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), 4000); }
+function toast(m, kind = 'ok') { const t = $('toast'); t.textContent = m; t.dataset.kind = kind; t.classList.add('show'); clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), Math.min(25000, Math.max(4000, String(m).length * 80))); }   // mensagem longa (onde achar o arquivo corrigido) fica mais tempo na tela
 
 let navAnt = '', segAnt = '', htmlAnt = '', vistaAnt = '';
 function atualizarPill() {
@@ -267,8 +267,9 @@ async function corrigirNomesAgora(botao) {
   const { prontas } = planoDeCorrecao(data('nomenclatura'), re, source().docs || []);
   if (!prontas.length) return toast('Nenhum arquivo com proposta segura agora.', 'warn');
   const primeira = primeiraCorrecao(), itens = (primeira ? prontas.slice(0, 1) : prontas.slice(0, MAX_RODADA));
-  const amostra = itens.slice(0, 8).map(i => `${i.arquivo}  →  ${i.novo}`).join('\n');
-  const okc = await confirmModal({ title: `Renomear ${itens.length} arquivo${itens.length === 1 ? '' : 's'} no Onvio?`, ok: 'Renomear', text: `${amostra}${itens.length > 8 ? `\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só este arquivo, para você conferir no Onvio antes de continuar.' : 'Um por vez, conferindo cada um antes. Nada é excluído nem movido.'} Dá para desfazer.` });
+  // cada arquivo com a empresa, o CNPJ e a pasta, para dar para achar no Onvio e conferir
+  const amostra = itens.slice(0, 8).map(i => `${i.empresa} (${formatCnpj(i.cnpj)})\nPasta: ${i.pasta}\n${i.arquivo}  →  ${i.novo}`).join('\n\n');
+  const okc = await confirmModal({ title: `Renomear ${itens.length} arquivo${itens.length === 1 ? '' : 's'} no Onvio?`, ok: 'Renomear', text: `${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só este arquivo, para você conferir no Onvio antes de continuar.' : 'Um por vez, conferindo cada um antes. Nada é excluído nem movido.'} Dá para desfazer.` });
   if (!okc) return;
   let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
   corrigindo = { parar: false }; render(false);
@@ -276,12 +277,13 @@ async function corrigirNomesAgora(botao) {
   corrigindo = null;
   if (r.feitos.length) { correcoes.rodadas.push({ em: new Date().toISOString(), feitos: r.feitos, falhas: r.falhas.length, parou: r.parou }); await guardarCorrecoes(); await aplicarNomesNaLeitura(r.feitos.map(f => ({ docId: f.docId, novo: f.para }))); }
   const motivo = r.falhas.length ? ` ${r.falhas.length} não alterado${r.falhas.length === 1 ? '' : 's'}: ${MOTIVOS_FALHA[r.falhas[0].motivo] || r.falhas[0].motivo}.` : '';
-  toast(`${r.feitos.length} arquivo${r.feitos.length === 1 ? '' : 's'} renomeado${r.feitos.length === 1 ? '' : 's'}.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ' Confira no Onvio e clique de novo para corrigir os demais.' : ''}`, r.feitos.length ? 'ok' : 'warn');
+  toast(`${r.feitos.length} arquivo${r.feitos.length === 1 ? '' : 's'} renomeado${r.feitos.length === 1 ? '' : 's'}.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ` Confira no Onvio: ${itens[0].empresa}, pasta ${itens[0].pasta}, arquivo "${r.feitos[0].para}". Se estiver certo, clique de novo para corrigir os demais.` : ''}`, r.feitos.length ? 'ok' : 'warn');
   recompute(); render(false);
 }
 async function desfazerNomesAgora() {
   const rod = ultimaRodada(); if (!rod) return;
-  const okc = await confirmModal({ title: `Desfazer ${rod.feitos.length} renomeação${rod.feitos.length === 1 ? '' : 'ões'}?`, ok: 'Desfazer', text: 'Cada arquivo volta ao nome antigo, só se ainda tiver o nome novo no Onvio.' });
+  const lista = rod.feitos.slice(0, 6).map(f => `${f.empresa} (${formatCnpj(f.cnpj)})\n${f.para}  →  ${f.de}`).join('\n\n');
+  const okc = await confirmModal({ title: `Desfazer ${rod.feitos.length} renomeação${rod.feitos.length === 1 ? '' : 'ões'}?`, ok: 'Desfazer', text: `${lista}${rod.feitos.length > 6 ? `\n\n… e mais ${rod.feitos.length - 6}` : ''}\n\nCada arquivo volta ao nome antigo, só se ainda tiver o nome novo no Onvio.` });
   if (!okc) return;
   let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
   corrigindo = { parar: false }; render(false);
