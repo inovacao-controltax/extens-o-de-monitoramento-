@@ -88,3 +88,6 @@ Ligada a primeira escrita da extensão no Onvio, a **única**: `PUT storage/v1/f
 
 ## Correção de nomes: bloco no topo (0.24.1)
 O bloco **Correção dos nomes** (e o botão Corrigir) passou para o **topo** de Nomenclatura, antes da lista de centenas de arquivos, onde ficava escondido no fim. Se há arquivos com proposta mas a leitura é de antes da 0.23 (sem o identificador do arquivo), o bloco avisa para rodar Coletar do Onvio de novo.
+
+## Confirmação com empresa e pasta (0.24.2)
+A janela de confirmação da correção de nomes (e a do desfazer) agora mostra, para cada arquivo, a **empresa, o CNPJ e a pasta** além de "nome atual → nome novo", e depois do teste de 1 arquivo a mensagem diz em que empresa e pasta conferir no Onvio. Mensagens longas ficam mais tempo na tela. (Feedback do Josué: "como vou conferir sem saber de que empresa é esse arquivo".)
