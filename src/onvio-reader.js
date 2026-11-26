@@ -17,6 +17,7 @@ const PERMITIDAS = [
   /^br-payroll-sr\/v1\/(employees-registrations|taxpayers-registrations|interns-registrations|prior-notice-vacations|vacation-calculations|prior-notice-terminations|termination-calculations|employee-leave|payroll-entries)$/i,
   /^(service-requesting\/v1\/tickets|br-payroll-sr\/v1\/(tickets|employees-registrations|payroll-entries))\/[0-9a-f-]{8,40}\/topics$/i,
   /^storage\/v2\/(Projects|Folders)\/[^/]+\/children$/i,
+  /^storage\/v1\/folders\/[^/]+\/documents\/[^/]+\/metadata$/i,         // conferência antes de renomear (só os metadados do arquivo)
 ];
 export class AuthError extends Error {}
 

@@ -1,4 +1,17 @@
-# Mapear: renomear um arquivo no Onvio (para a correção automática de nomes)
+# Renomear um arquivo no Onvio — MAPEADO (26/11/2026)
+
+Chamada observada pelo modo aprender ao renomear um arquivo pelo próprio Onvio:
+
+| Método e rota | Corpo (só nomes dos campos) | Resposta |
+|---|---|---|
+| `PUT storage/v1/folders/{pasta}/documents/{arquivo}` | `name`, `id`, `containerId` | 200 com o documento |
+| `GET storage/v1/folders/{pasta}/documents/{arquivo}/metadata?LoadItemMetadata` | — | `data.name`, `data.containerId` (usada para conferir antes) |
+
+Só foi mapeada para arquivo em **pasta** (`storage/v1/folders/...`). Arquivo na raiz do projeto fica de fora (a rota de projeto não foi vista). Renomear **pasta** ainda não foi mapeado.
+
+---
+
+# Como mapear uma chamada nova (roteiro)
 
 A extensão hoje só lê o Onvio. Para corrigir nomes sozinha ela precisa saber **qual chamada a própria tela do Onvio faz ao renomear um arquivo**. O modo aprender registra só o método, a rota sem ids e os **nomes** dos campos (nunca valores, cabeçalhos nem token).
 

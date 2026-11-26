@@ -11,7 +11,7 @@ const secClass = s => ({ 'Pessoal': 'sec-pessoal', 'Contábil': 'sec-contabil', 
 export function confirmModal({ title, text, ok = 'Confirmar', danger = false }) {
   return new Promise(resolve => {
     const ov = document.getElementById('overlay');
-    ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">${esc(title)}</h2><p>${esc(text)}</p>
+    ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">${esc(title)}</h2><p style="white-space:pre-line">${esc(text)}</p>
       <div class="actions"><button class="btn" data-r="0" type="button">Cancelar</button><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-r="1" type="button">${esc(ok)}</button></div></div>`;
     ov.classList.add('open');
     const prev = document.activeElement;
