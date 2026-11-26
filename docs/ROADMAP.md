@@ -16,5 +16,11 @@
 | 5b | **Notificações do escritório (Onvio)**: modo aprender do Onvio (feito); leitura da tela de notificações e monitor com o aviso de nova solicitação desligado | aguardando as chamadas observadas |
 | 6 | Varredura de todas as empresas, histórico, badge e alertas | feito (0.12.0): histórico por leitura, "novas" no sino e na bolinha, evolução em 7 dias |
 | 7 | Ações (avisar cliente por e-mail/Zappy), exportação CSV | CSV feito (0.12.0); aviso ao cliente feito (0.15.0): rascunho no Zimbra, quem envia é a pessoa |
+| 8 | **Ligação com o Control Hub** (0.13 a 0.18): treinados vindos direto do Hub (grupo = raiz do CNPJ, só setores com contato), contatos do grupo para o Para e a Cópia do aviso (Hub 435) | feito |
+| 9 | **Uso do portal confiável** (0.16 a 0.17): Solicitações contam como uso, autoria exata pela lista de funcionários, leitura adaptativa (~4 min para 1.056 empresas) | feito; autoria conferida no Onvio real (26/11/2026) |
+| 10 | **Demanda e grupos** (0.19 a 0.20): alerta padrão de 90 dias, demanda por setor vinda do Hub (436) — parada sem demanda não alerta —, grupos de empresas (Atacapet + RB + YB) | feito; demanda conferida com o Gestta |
+| 11 | **Resumo do dia** (0.21): novidades das últimas 24 h e variação desde ontem, sem permissão nova | feito, a conferir no uso |
+| 12 | **Padrão de pastas pela empresa modelo 9999** (0.22) | feito, a conferir no Onvio real |
+| 13 | Próximos, por decisão do Josué: ler só os meses recentes (leitura mais rápida); parar de ler a pasta Financeiro; notificação do Chrome (exige permissão nova); grupos entre raízes também no Hub | aberto |
 
 Ideia geral e arquitetura: veja `IDEIA.md`.
