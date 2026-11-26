@@ -2,7 +2,10 @@
 
 Uma de cada vez, na ordem: **1) pastas fora do padrão**, depois **2) notificações desligadas**. Use sempre a empresa de teste (9999) e, nas notificações, um usuário de teste seu. O modo aprender registra só método, rota sem ids e **nomes** dos campos (nunca valores, cabeçalhos nem token).
 
-## 0) Excluir uma pasta VAZIA (pedido do Josué, 26/11/2026: "essas pastas não são para existir, a extensão tem que apagar")
+## 0) Excluir uma pasta VAZIA — MAPEADO (26/11/2026): `POST storage/v1/trash/projects` com `{ id }` (201), vai para a lixeira do Onvio. Ligado na 0.26.0.
+
+(roteiro original, para referência)
+## Excluir uma pasta VAZIA (pedido do Josué, 26/11/2026: "essas pastas não são para existir, a extensão tem que apagar")
 Excluir é irreversível, então a extensão só vai excluir pasta **fora do padrão que o Onvio diz estar vazia** (`hasChildren` falso, sem arquivos nem subpastas) e que o usuário pode excluir (`permissions.delete`). Pasta com conteúdo **nunca** é excluída: vai para uma lista para você decidir. Para isso preciso saber qual chamada a tela do Onvio faz ao excluir:
 1. Modo aprender ligado (Coleta do Onvio › Aprender chamadas do Onvio).
 2. Na empresa de teste (9999), crie uma pasta/projeto **vazio** de teste e **exclua** pelo próprio Onvio.

@@ -3,6 +3,7 @@
 // Dois jeitos, o que funcionar fica: mundo da página (como a própria página) e mundo isolado da extensão (mesma origem).
 import { guardar, AuthError, fetcherComFallback } from './onvio-reader.js';
 import { escritaPermitida } from './corrigir-escrita.js';
+import { lixeiraPermitida } from './excluir-pastas.js';
 
 const dorme = ms => new Promise(r => setTimeout(r, ms));
 export async function abaOnvio() {
@@ -43,7 +44,7 @@ export async function criarEscritor() {
   if (!tab) throw new AuthError('Não há aba do Onvio aberta. Abra https://onvio.com.br, faça login e tente de novo.');
   if (visaoCliente(tab)) throw new AuthError('A aba do Onvio está na visão do cliente. Use o acesso do escritório.');
   return async pedido => {
-    if (!escritaPermitida(pedido)) return { status: 0 };
+    if (!escritaPermitida(pedido) && !lixeiraPermitida(pedido)) return { status: 0 };
     const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', args: [pedido], func: escreverNaPagina });
     return (res && res.result) || { status: 0 };
   };
