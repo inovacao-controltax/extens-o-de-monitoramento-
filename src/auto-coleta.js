@@ -3,8 +3,9 @@
 // e entrega dados parciais ao painel a cada poucos segundos (o painel cresce enquanto lê). Terminada a leitura completa, relê só as
 // empresas prioritárias a cada 10 min e a leitura completa a cada `horasAuto`. SÓ LEITURA (mesma lista fechada de rotas).
 // Para sozinha com acesso de cliente, se a sessão cair ou se o Onvio pedir calma. Uma trava impede duas abas lendo ao mesmo tempo.
-import { guardar, limitado, idsDaEquipe, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
+import { guardar, limitado, idsDaEquipe, pastasDoModelo, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
 import { loadConfig, DEPARTAMENTOS_LIDOS, raizesParaLer } from './config.js';
+export const CHAVE_PASTAS_MODELO = 'monitor-pastas-modelo';
 import { loadSnapshot, saveSnapshot, saveSnapshotCompleto, duracaoDe as duracao } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
 import { lerEnviosPorSolicitacao, assinaturaTreinadas } from './solicitacoes.js';
@@ -52,6 +53,10 @@ async function leituraCompleta(cfg, avisa) {
   avisa({ estado: 'rodando', feito: 0, total: 0, msg: 'Lendo a lista de empresas…' });
   const { clientes, falhaCnd } = await listarClientes(f, { pausa, onLista: l => avisa({ estado: 'rodando', feito: 0, total: 0, msg: `Lendo a lista de empresas… ${l.lidos}${l.total ? ' de ' + l.total : ''}` }) });
   try { await st().set({ [CHAVE_CLIENTES]: { em: Date.now(), clientes: compactos(clientes) } }); } catch (e) { /* cache é só para a releitura rápida */ }
+  try {      // o padrão de pastas vem da empresa modelo (9999); falhar aqui não derruba a leitura (vale a lista das configurações)
+    const pm = await pastasDoModelo(f, clientes, cfg.empresaModelo || '9999');
+    if (pm.ok) await st().set({ [CHAVE_PASTAS_MODELO]: { em: Date.now(), codigo: pm.codigo, empresa: pm.empresa, nomes: pm.nomes } });
+  } catch (e) { if (e instanceof AuthError) throw e; }
   const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
   const prioridade = new Set([...(cfg.trained || []).map(t => t.cnpj), ...raizesParaLer(cfg.trained)]);   // treinadas e seus outros estabelecimentos (mesma raiz) primeiro
   const equipeIds = await equipeSegura(f);

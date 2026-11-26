@@ -265,6 +265,20 @@ export function classificarAutores(docs, { minEmpresas, equipeIds } = {}) {
 const dia = v => { const s = String(v || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : ''; };
 
 /**
+ * Pastas do padrão = as pastas de primeiro nível (projetos) da empresa modelo (Josué, 26/11/2026: EMPRESA EXEMPLO SIMPLES NACIONAL LTDA, código 9999,
+ * "está com o padrão correto"). Uma chamada por id da empresa; só nomes de pasta, nada de arquivo. { ok, empresa, codigo, nomes } ou { ok:false, motivo }.
+ */
+export async function pastasDoModelo(fetcher, clientes, codigo = '9999') {
+  const c = (clientes || []).find(x => String(x.codigo) === String(codigo));
+  if (!c) return { ok: false, motivo: 'nao-achou' };
+  for (const id of c.ids || []) {
+    const nomes = [...new Set(listaDe(await fetcher(URL_PROJETOS(id))).filter(p => p && p.id != null).map(p => String(nomeDe(p) || '').trim()).filter(Boolean))];
+    if (nomes.length) return { ok: true, empresa: c.nome, codigo: String(codigo), nomes };
+  }
+  return { ok: false, motivo: 'sem-pastas' };
+}
+
+/**
  * Lê as pastas e arquivos de UMA empresa. Os "projetos" do cliente são os departamentos (Pessoal, Fiscal...) e viram a pasta de
  * primeiro nível. Se houver um projeto só e o nome dele não for um departamento conhecido, a raiz é esse projeto (desenho antigo).
  */
