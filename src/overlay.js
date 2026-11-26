@@ -22,22 +22,38 @@
     #v{pointer-events:auto;position:fixed;inset:0;background:#0B1015}
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
+    #av{position:absolute;top:0;left:0;right:0;z-index:2;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:14px 16px;background:#7A1F12;color:#fff;font:600 14px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+    #av[hidden]{display:none} #av button{font:700 13px system-ui,sans-serif;padding:8px 14px;border-radius:4px;border:1px solid #fff;background:#fff;color:#7A1F12;cursor:pointer} #av button.s{background:transparent;color:#fff}
   </style>
   <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"><span id="n" hidden></span></button>
-  <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"></div>`;
+  <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"><div id="av" hidden role="alert"><span id="avt"></span><button type="button" id="avr">Recarregar a página</button><button type="button" id="avf" class="s">Fechar</button></div></div>`;
   document.documentElement.appendChild(host);
-  const b = root.getElementById('b'), v = root.getElementById('v'), nBadge = root.getElementById('n');
-  let frame = null;
+  const b = root.getElementById('b'), v = root.getElementById('v'), nBadge = root.getElementById('n'), av = root.getElementById('av');
+  let frame = null, ultimoBatimento = 0, abertoEm = 0, vigia = null;
+  // Depois de a extensão ser atualizada ou recarregada com esta página aberta, este script fica "órfão": o endereço do painel deixa de existir
+  // e o Chrome mostra "Este arquivo pode ter sido movido, editado ou excluído". Em vez disso, avisa e oferece recarregar a página.
+  const vivo = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } };
+  function avisarOrfao() {
+    root.getElementById('avt').textContent = 'A extensão foi atualizada e esta página ainda usa a versão antiga. Recarregue a página para abrir o painel.';
+    av.hidden = false; v.hidden = false; b.hidden = true;
+    root.getElementById('avr').onclick = () => location.reload();
+    root.getElementById('avf').onclick = () => { av.hidden = true; v.hidden = true; b.hidden = false; };
+  }
 
   const aberto = () => !v.hidden;
   function abrir() {
+    if (!vivo()) return avisarOrfao();
     if (!frame) {
       frame = document.createElement('iframe');
       frame.title = 'Hub de Monitoramento do Portal';
       frame.src = chrome.runtime.getURL('hub/hub.html?camada=1');
       v.appendChild(frame);
     }
-    v.hidden = false; b.hidden = true;
+    v.hidden = false; b.hidden = true; abertoEm = Date.now(); ultimoBatimento = abertoEm;
+    if (!vigia) vigia = setInterval(() => {      // o painel avisa que está vivo a cada 3 s; sem aviso (ou sem extensão) por muito tempo, mostra a saída
+      if (v.hidden || !av.hidden) return;
+      if (!vivo() || (Date.now() - abertoEm > 7000 && Date.now() - ultimoBatimento > 9000)) { root.getElementById('avt').textContent = vivo() ? 'O painel não respondeu. Se a extensão foi atualizada, recarregue a página.' : 'A extensão foi atualizada e esta página ainda usa a versão antiga. Recarregue a página para abrir o painel.'; av.hidden = false; root.getElementById('avr').onclick = () => location.reload(); root.getElementById('avf').onclick = () => { av.hidden = true; fechar(); }; }
+    }, 2000);
     setTimeout(() => { try { frame.focus(); } catch (e) { /* sem foco */ } }, 50);
   }
   function fechar() { v.hidden = true; b.hidden = false; }
@@ -64,7 +80,11 @@
 
   window.addEventListener('keydown', e => { if (aberto() && e.key === 'Escape') fechar(); }, true);
   // O hub (dentro do quadro) pede para fechar. Só vale da janela do nosso quadro e da origem da extensão.
-  window.addEventListener('message', e => { if (frame && e.source === frame.contentWindow && e.origin === ORIGEM && e.data && e.data.tipo === 'controlmon-fechar') fechar(); });
+  window.addEventListener('message', e => {
+    if (!(frame && e.source === frame.contentWindow && e.origin === ORIGEM && e.data)) return;
+    if (e.data.tipo === 'controlmon-fechar') fechar();
+    if (e.data.tipo === 'controlmon-vivo') { ultimoBatimento = Date.now(); if (!av.hidden && vivo()) av.hidden = true; }
+  });
   chrome.runtime.onMessage.addListener(m => { if (m && m.tipo === 'controlmon-alternar') alternar(); });
 
   // Ponto vermelho com o número de pendências NOVAS ainda não vistas (histórico, fase 6). Só mostra; quem marca como vista é o painel.
