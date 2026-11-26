@@ -437,6 +437,7 @@ try {
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
     if (ch['monitor-notificacoes-estado']) { nestado = ch['monitor-notificacoes-estado'].newValue || null; recompute(); renderSuave(); }
     if (ch[CHAVE_HIST]) { hist = ch[CHAVE_HIST].newValue || null; sino(); }
+    if (ch['monitor-config']) loadConfig().then(c => { cfg = c; recompute(); renderNav(); renderSuave(); });      // a lista de treinados puxada sozinha em segundo plano aparece sem recarregar
     if (ch[CHAVE_DEMANDA]) { demandaHub = ch[CHAVE_DEMANDA].newValue || null; recompute(); renderSuave(); }
     if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
