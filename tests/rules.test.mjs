@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG } from '../src/config.js';
 import { setorDaPasta, checkNomenclatura, checkPastas, checkSemEnvio, checkNotificacoes, analyze } from '../src/rules.js';
 
 const NOW = new Date('2026-11-25T15:00:00Z');
-const cfg = { ...DEFAULT_CONFIG, trained: [] };
+const cfg = { ...DEFAULT_CONFIG, diasSemEnvio: 30, trained: [] };
 const doc = (o = {}) => ({ empresa: 'A', cnpj: '1', pasta: 'Fiscal/2026/11', arquivo: '11-2026 NFE x.pdf', data: '2026-11-20', origem: 'cliente', ...o });
 
 test('setor pela pasta, sem diferenciar acento e maiúscula', () => {
@@ -69,4 +69,19 @@ test('analyze: usa treinados da configuração; se vazio, os do snapshot', () =>
 test('pastas: projeto que só entrou pelo nome (sem arquivo lido) conta 0 arquivos', () => {
   const r = checkPastas([doc({ pasta: 'Docs Diversos', arquivo: '', origem: 'sistema' })], cfg);
   assert.deepEqual(r, [{ empresa: 'A', cnpj: '1', pasta: 'Docs Diversos', arquivos: 0 }]);
+});
+
+import { demandaDe } from '../src/rules.js';
+import { demandaParaMapa } from '../src/hub-treinados.js';
+test('demanda do Hub: parada sem demanda não alerta; sem informação do Hub continua alertando', () => {
+  const now = new Date('2026-11-26T12:00:00Z');
+  const t = [{ empresa: 'A', cnpj: '11222333000181', treinadoEm: '2026-01-01', demanda: ['Pessoal'] }];
+  const cfg = { diasSemEnvio: 90 };
+  assert.equal(checkSemEnvio([], t, cfg, now).length, 1);                                         // sem Hub: alerta (nunca se presume sem demanda)
+  assert.equal(checkSemEnvio([], t, cfg, now, {}, { '11222333': [] }).length, 0);                  // Hub: sem demanda em nenhum setor
+  assert.equal(checkSemEnvio([], t, cfg, now, {}, { '11222333': ['Fiscal'] }).length, 1);          // com demanda: alerta
+  assert.equal(checkSemEnvio([], t, cfg, now, {}, { '99999999': [] }).length, 1);                  // empresa que o Hub não conhece: alerta
+  assert.deepEqual(demandaDe({ '11222333': ['Fiscal'] }, '11.222.333/0002-62'), { comDemanda: true, setoresDemanda: ['Fiscal'] });
+  assert.equal(demandaDe(null, '11222333000181').comDemanda, null);
+  assert.deepEqual(demandaParaMapa([{ raiz: '11222333', setores: ['Fiscal', 'Financeiro'] }, { raiz: '11222333', setores: ['Pessoal'] }, { raiz: 'x', setores: [] }]), { '11222333': ['Fiscal', 'Pessoal'] });
 });

@@ -62,12 +62,13 @@
     try { h.win.postMessage(Object.assign({ ctlhub: 1, de: 'ext', tipo: 'consulta', acao, id, token }, extra || {}), '*'); } catch (e) { hub = null; return { ok: false, motivo: 'sem-hub' }; }
     const r = await resposta;
     if (!r.ok && (r.motivo === 'token')) hub = null;
-    return r.ok ? { ok: true, treinados: Array.isArray(r.treinados) ? r.treinados : [], contatos: Array.isArray(r.contatos) ? r.contatos : [] } : { ok: false, motivo: String(r.motivo || 'erro'), mensagem: String(r.mensagem || '') };
+    return r.ok ? { ok: true, treinados: Array.isArray(r.treinados) ? r.treinados : [], contatos: Array.isArray(r.contatos) ? r.contatos : [], demanda: Array.isArray(r.demanda) ? r.demanda : [] } : { ok: false, motivo: String(r.motivo || 'erro'), mensagem: String(r.mensagem || '') };
   }
   try {
     chrome.runtime.onMessage.addListener((msg, sender, responder) => {
       if (!msg || !vivo()) return;
       if (msg.tipo === 'hub-treinados') { consultar('treinados').then(responder, () => responder({ ok: false, motivo: 'erro' })); return true; }
+      if (msg.tipo === 'hub-demanda') { consultar('demanda').then(responder, () => responder({ ok: false, motivo: 'erro' })); return true; }
       if (msg.tipo === 'hub-contatos' && /^[0-9A-Z]{8}$/.test(String(msg.raiz || ''))) { consultar('contatos', { raiz: String(msg.raiz) }).then(responder, () => responder({ ok: false, motivo: 'erro' })); return true; }
     });
   } catch (e) { /* extensão atualizada: recarregue a aba */ }

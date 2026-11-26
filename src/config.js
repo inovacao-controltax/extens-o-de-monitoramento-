@@ -7,7 +7,7 @@ export const DEFAULT_CONFIG = {
   filePattern: '^(0[1-9]|1[0-2])-20\\d{2} \\S.*$',
   // Os 8 projetos (departamentos) que o Onvio cria em toda empresa, mais Contábil e Comunicados como variações comuns.
   allowedFolders: ['Administrativo', 'Certidão Negativa de Débito', 'Contabilidade', 'Contábil', 'Financeiro', 'Fiscal', 'Patrimônio', 'Pessoal', 'Registro de Empresas', 'Comunicados'],
-  diasSemEnvio: 30,
+  diasSemEnvio: 90,   // Josué, 26/11/2026: o alerta padrão é de 90 dias (era 30)
   autoLer: true,      // ler o Onvio sozinho, em segundo plano, quando os dados têm mais de horasAuto
   horasAuto: 6,
   gesttaCampo: '',    // caminho do campo "recebe notificação de tarefa nova" no cadastro do funcionário (vazio = detectar)
@@ -116,6 +116,7 @@ export async function loadConfig() {
   } catch (e) { console.error('loadConfig', e); }
   if (saved && saved.filePattern === PADRAO_ANTIGO) saved.filePattern = DEFAULT_CONFIG.filePattern;   // troca o exemplo antigo pelo padrão oficial
   if (saved && Array.isArray(saved.allowedFolders) && JSON.stringify(saved.allowedFolders) === JSON.stringify(LISTA_ANTIGA)) saved.allowedFolders = structuredClone(DEFAULT_CONFIG.allowedFolders);
+  if (saved && saved.diasSemEnvio === 30) saved.diasSemEnvio = DEFAULT_CONFIG.diasSemEnvio;   // 30 era o padrão antigo; quem quiser outro valor escolhe
   return { ...structuredClone(DEFAULT_CONFIG), ...(saved || {}) };
 }
 export async function saveConfig(cfg) {

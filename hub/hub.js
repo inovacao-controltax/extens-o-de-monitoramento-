@@ -1,8 +1,8 @@
 import { SAMPLE } from '../src/mock.js';
 import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
-import { puxarTreinados, contatosDoHub } from '../src/hub-treinados.js';
+import { puxarTreinados, contatosDoHub, CHAVE_DEMANDA } from '../src/hub-treinados.js';
 import { montarAviso, linkZimbra, destinatarios } from '../src/aviso.js';
-import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj } from '../src/rules.js';
+import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj, demandaDe } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
 import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel } from '../src/snapshot.js';
@@ -67,11 +67,12 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
+let demandaHub = null;      // { em, mapa: { raiz: [setores com demanda] } } puxado do Hub (Hub 436)
 let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, hist = null, snapCompleto = null, snapEst = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => snapEst;      // a coleta estável: a terminada ou, enquanto a nova é lida, a última completa (os números não sobem e descem)
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
-const source = () => (real() ? { docs: real().docs, notif: nsnap, solic: ssnap && ssnap.porCnpj, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
+const source = () => (real() ? { docs: real().docs, notif: nsnap, solic: ssnap && ssnap.porCnpj, demanda: demandaHub && demandaHub.mapa, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
 const recompute = () => { snapEst = snapshotEstavel(snap, snapCompleto); R = analyze(source(), cfg); if (nsnap) R.notificacoes = checkNotificacoesOnvio(nsnap, cfg); marcarIcone(); };   // notificações lidas do Onvio valem mesmo sem a coleta das empresas
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
@@ -182,39 +183,41 @@ function ultimosEnvios() {
   const tem = new Set([...ult.keys()].map(raizDoCnpj));
   for (const t of cfg.trained || []) if (!tem.has(raizDoCnpj(t.cnpj))) ult.set(t.cnpj, { empresa: t.empresa, cnpj: t.cnpj, data: '', fonte: '', detalhe: '' });
   const hoje = Date.now();
-  return [...ult.values()].map(x => ({ ...x, treinada: raizes.has(raizDoCnpj(x.cnpj)), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
+  return [...ult.values()].map(x => ({ ...x, treinada: raizes.has(raizDoCnpj(x.cnpj)), ...demandaDe(demandaHub && demandaHub.mapa, x.cnpj), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
 }
 function enviosHtml() {
   if (lendoSemDados() || !real()) return '<div class="empty"><b>Nada lido ainda.</b><p>Os últimos envios aparecem assim que as primeiras empresas forem lidas.</p></div>';
   const limite = cfg.diasSemEnvio;
-  const classe = r => r.dias === null ? 'semreg' : r.dias > limite ? 'sem' : 'uso';
+  // Parada há mais do limite (ou sem registro) E o Hub diz que a empresa não tem demanda em nenhum setor: não é falta de uso, é falta de o que enviar.
+  const classe = r => (r.dias === null || r.dias > limite) && r.comDemanda === false ? 'semdem' : r.dias === null ? 'semreg' : r.dias > limite ? 'sem' : 'uso';
   let base = ultimosEnvios();
   const q = term(); if (q) base = base.filter(r => `${r.empresa} ${r.cnpj} ${r.detalhe}`.toLowerCase().includes(q));
   if (state.soTreinadas) base = base.filter(r => r.treinada);
-  const cont = { uso: 0, sem: 0, semreg: 0 }; base.forEach(r => cont[classe(r)]++);
+  const cont = { uso: 0, sem: 0, semreg: 0, semdem: 0 }; base.forEach(r => cont[classe(r)]++);
   const sel = state.envClasse || 'todas';
   let rows = sel === 'todas' ? base : base.filter(r => classe(r) === sel);
   rows.sort((a, b) => (b.dias ?? 1e6) - (a.dias ?? 1e6));         // quem está há mais tempo sem usar (ou sem registro) primeiro
   const lim = state.lim.envios || LIM, total = rows.length;
-  const sit = r => ({ uso: badge('Em uso', 's-ok'), sem: badge('Sem uso', 's-warn'), semreg: badge('Sem registro', 's-late') })[classe(r)];
+  const sit = r => ({ uso: badge('Em uso', 's-ok'), sem: badge('Sem uso', 's-warn'), semreg: badge('Sem registro', 's-late'), semdem: badge('Sem demanda', 's-ok') })[classe(r)];
   const chip = (k, rot, n) => `<button type="button" data-env-classe="${k}" aria-pressed="${sel === k}">${rot} <small>${n}</small></button>`;
   const todasSolic = ssnap && ssnap.escopo === 'todas-v2';
-  const nota = `Uso do portal = arquivo enviado pelo cliente ou atividade do cliente em Solicitações de Serviço${todasSolic ? ' (de todas as empresas)' : ' (por enquanto só das treinadas: a leitura das demais ainda não terminou)'}. Matriz e filiais contam como uma empresa só nas treinadas. Sem uso = mais de ${limite} dias. Sem registro = nenhum arquivo nem solicitação do cliente encontrados.`;
+  const nota = `Uso do portal = arquivo enviado pelo cliente ou atividade do cliente em Solicitações de Serviço${todasSolic ? ' (de todas as empresas)' : ' (por enquanto só das treinadas: a leitura das demais ainda não terminou)'}. Matriz e filiais contam como uma empresa só nas treinadas. Sem uso = mais de ${limite} dias. Sem registro = nenhum arquivo nem solicitação do cliente encontrados.${demandaHub ? ' Sem demanda = parada e sem tarefa em nenhum setor no Gestta (segundo o Hub): não entra nos alertas.' : ' Puxe do Hub para saber quais paradas não têm demanda.'}`;
   return `<div class="toolbar"><span class="grow">${base.length} empresa${base.length === 1 ? '' : 's'}</span>
-      <div class="seg" role="group" aria-label="Situação">${chip('todas', 'Todas', base.length)}${chip('uso', 'Em uso', cont.uso)}${chip('sem', 'Sem uso', cont.sem)}${chip('semreg', 'Sem registro', cont.semreg)}</div>
+      <div class="seg" role="group" aria-label="Situação">${chip('todas', 'Todas', base.length)}${chip('uso', 'Em uso', cont.uso)}${chip('sem', 'Sem uso', cont.sem)}${chip('semreg', 'Sem registro', cont.semreg)}${demandaHub ? chip('semdem', 'Sem demanda', cont.semdem) : ''}</div>
       <div class="seg" role="group" aria-label="Quais empresas"><button type="button" data-env-trein="0" aria-pressed="${!state.soTreinadas}">Todas as lidas</button><button type="button" data-env-trein="1" aria-pressed="${!!state.soTreinadas}">Só treinadas</button></div></div>
-    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último uso</th><th>Há</th><th>Origem</th><th>Situação</th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${sit(r)}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${total}${total > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span style="max-width:62ch;text-align:right">${esc(nota)}</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
+    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último uso</th><th>Há</th><th>Origem</th><th>Demanda</th><th>Situação</th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${r.comDemanda === null ? '<span class="muted" title="O Hub não conhece a empresa ou a demanda ainda não foi puxada">—</span>' : r.comDemanda ? esc(r.setoresDemanda.join(', ')) : '<span class="muted">nenhuma</span>'}</td><td>${sit(r)}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${total}${total > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span style="max-width:62ch;text-align:right">${esc(nota)}</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
 }
 // Nenhuma treinada sem envio: mostra POR QUE (cada empresa com a última atividade e de onde veio), para dar para conferir a leitura.
 function emDiaHtml() {
-  const src = source(), lista = statusEnvio(src.docs, cfg.trained, new Date(), src.solic).sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
+  const src = source(), lista = statusEnvio(src.docs, cfg.trained, new Date(), src.solic, src.demanda).sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
   const silenciadas = new Set(silAtivas().map(x => x.cnpj));
   const avisos = [];
   if (!ssnap) avisos.push('As Solicitações de Serviço ainda não foram lidas: por enquanto só os arquivos contam como envio.');
   else if (ssnap.semCodigo) avisos.push(`${ssnap.semCodigo} empresa(s) treinada(s) sem código no Onvio: para elas as Solicitações não foram consideradas.`);
   if (real().lendo || real()._atualizando) avisos.push('Uma leitura nova das empresas está em andamento; estes números são os da última leitura completa e atualizam quando ela terminar.');
-  const emDia = lista.filter(r => r.dias !== null && r.dias <= cfg.diasSemEnvio).length;
-  const titulo = emDia === lista.length ? (lista.length === 1 ? `A empresa treinada usou o portal nos últimos ${cfg.diasSemEnvio} dias.` : `Todas as ${lista.length} empresas treinadas usaram o portal nos últimos ${cfg.diasSemEnvio} dias.`) : `Nenhuma empresa para acompanhar agora: ${emDia} de ${lista.length} usaram o portal nos últimos ${cfg.diasSemEnvio} dias e as outras estão silenciadas ou em carência desde o treinamento.`;
+  const semDem = lista.filter(r => r.comDemanda === false && (r.dias === null || r.dias > cfg.diasSemEnvio)).length;
+  const emDia = lista.filter(r => r.dias !== null && r.dias <= cfg.diasSemEnvio).length + semDem;
+  const titulo = emDia === lista.length ? (lista.length === 1 ? `A empresa treinada usou o portal nos últimos ${cfg.diasSemEnvio} dias.` : `Todas as ${lista.length} empresas treinadas usaram o portal nos últimos ${cfg.diasSemEnvio} dias.`) : `Nenhuma empresa para acompanhar agora: ${emDia - semDem} de ${lista.length} usaram o portal nos últimos ${cfg.diasSemEnvio} dias${semDem ? `, ${semDem} estão paradas mas sem demanda (segundo o Hub)` : ''} e as outras estão silenciadas ou em carência desde o treinamento.`;
   return `<div class="empty"><b>${titulo}</b><p>Confira abaixo a última atividade de cada uma e de onde veio (arquivo enviado ou Solicitação de Serviço).</p></div>
     <div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Última atividade</th><th>Situação</th></tr></thead><tbody>${lista.map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.dias === null ? '<span class="muted">nenhuma registrada</span>' : `há ${r.dias} dias <span class="muted">· ${esc(r.fonte)}</span>`}</td><td>${silenciadas.has(r.cnpj) ? badge('Silenciada', 's-warn') : r.dias === null ? badge('Carência desde o treinamento', 's-warn') : badge('Em dia', 's-ok')}</td></tr>`).join('')}</tbody></table></div>
     ${avisos.length ? `<p class="note-txt">${avisos.map(esc).join(' ')}</p>` : ''}`;
@@ -434,6 +437,7 @@ try {
     if (ch['monitor-coleta-estado']) andamento = ch['monitor-coleta-estado'].newValue || null;
     if (ch['monitor-notificacoes-estado']) { nestado = ch['monitor-notificacoes-estado'].newValue || null; recompute(); renderSuave(); }
     if (ch[CHAVE_HIST]) { hist = ch[CHAVE_HIST].newValue || null; sino(); }
+    if (ch[CHAVE_DEMANDA]) { demandaHub = ch[CHAVE_DEMANDA].newValue || null; recompute(); renderSuave(); }
     if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
     if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
@@ -443,6 +447,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_HIST]).then(r => { hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, CHAVE_HIST]).then(r => { demandaHub = r[CHAVE_DEMANDA] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
