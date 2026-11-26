@@ -94,3 +94,6 @@ A janela de confirmação da correção de nomes (e a do desfazer) agora mostra,
 
 ## Correção de nomes validada no Onvio real (26/11/2026)
 O Josué testou o botão Corrigir no Onvio real: a renomeação de 1 arquivo saiu **correta**. A parte 1 (propor) e a parte 2 (renomear, confirmar, um por vez, desfazer) estão validadas. Próximas automações, uma de cada vez: **pastas fora do padrão** e **notificações desligadas**, ambas dependem de mapear a chamada de escrita (`docs/mapear-pastas-e-notificacoes.md`).
+
+## Pastas fora do padrão: conteúdo (0.25.0)
+Em **Pastas fora do padrão**, a coluna "Arquivos" deu lugar a **Conteúdo**: *Vazia* (o Onvio informa `hasChildren` falso), *Com conteúdo* ou *conteúdo não verificado*. **"0 arquivos" nunca prova que a pasta está vazia:** a extensão só abre as pastas dos departamentos conhecidos, e nas demais mostrava 0 sem olhar dentro. A leitura agora guarda, por pasta de primeiro nível, o identificador, se está vazia e se o usuário pode excluir. Primeiro passo (só leitura) da automação de **excluir pastas vazias fora do padrão**, que depende de mapear a chamada de excluir (`docs/mapear-pastas-e-notificacoes.md`) e terá as mesmas travas da correção de nomes: confirmação, uma por vez, 1 só na primeira vez, para na primeira recusa, registro; e **nunca exclui pasta com conteúdo**.

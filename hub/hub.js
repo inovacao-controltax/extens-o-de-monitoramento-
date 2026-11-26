@@ -43,6 +43,9 @@ const sector = s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`;
 const badge = (t, c) => `<span class="badge ${c}">${esc(t)}</span>`;
 const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil'];
 
+// "0 arquivos" nas pastas que a extensão não abre NÃO quer dizer vazia: só vale o que o Onvio informa da pasta (hasChildren).
+const textoConteudoPasta = r => r.vazia === true ? 'vazia (segundo o Onvio)' : r.vazia === false ? (r.arquivos ? `${r.arquivos} arquivos` : 'com conteúdo') : r.arquivos ? `${r.arquivos} arquivos` : 'conteúdo não verificado';
+const conteudoPasta = r => r.vazia === true ? '<span class="badge s-ok">Vazia</span>' : r.vazia === false ? '<span class="badge s-warn">Com conteúdo</span>' : `<span class="muted">${esc(textoConteudoPasta(r))}</span>`;
 const TABS = {
   nomenclatura: { label: 'Nomenclatura', icon: I.file, sev: 's-warn', title: 'Arquivos com nome fora do padrão',
     hint: 'Enviados pelo cliente, fora do padrão de nome', setores: r => [r.setor],
@@ -51,9 +54,9 @@ const TABS = {
     step: r => [`Arquivo fora do padrão · ${r.empresa}`, `${r.pasta} · ${r.arquivo}`] },
   pastas: { label: 'Pastas fora do padrão', icon: I.folder, sev: 's-warn', title: 'Empresas com pasta fora do padrão',
     hint: 'Pasta de primeiro nível que não está na estrutura oficial', setores: () => [],
-    cols: [['Empresa'], ['CNPJ', 'num'], ['Pasta encontrada'], ['Arquivos', 'num r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), r.arquivos],
-    step: r => [`Pasta fora do padrão · ${r.empresa}`, `"${r.pasta}" com ${r.arquivos} arquivos`] },
+    cols: [['Empresa'], ['CNPJ', 'num'], ['Pasta encontrada'], ['Conteúdo', 'r']],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), conteudoPasta(r)],
+    step: r => [`Pasta fora do padrão · ${r.empresa}`, `"${r.pasta}" · ${textoConteudoPasta(r)}`] },
   semEnvio: { label: 'Treinados sem envio', icon: I.clock, sev: 's-late', title: 'Clientes treinados que não estão enviando',
     hint: 'Treinados, com demanda, sem envio recente no portal', setores: r => r.demanda,
     cols: [['Empresa'], ['CNPJ', 'num'], ['Treinado em', 'num col-sec'], ['Demanda'], ['Último envio', 'col-sec'], ['Situação'], ['', 'r']],

@@ -34,8 +34,8 @@ export function checkPastas(docs, cfg, modelo = null) {
     const top = topFolder(d.pasta);
     if (!top || ok.has(norm(top))) continue;
     const k = `${d.cnpj}|${norm(top)}`;
-    const g = grupos.get(k) || { empresa: d.empresa, cnpj: d.cnpj, pasta: top, arquivos: 0 };
-    if (d.arquivo) g.arquivos++;
+    const g = grupos.get(k) || { empresa: d.empresa, cnpj: d.cnpj, pasta: top, arquivos: 0, ...(d.pastaTipo === 'Projects' ? { pastaId: d.pastaId || '', pastaTipo: 'Projects', vazia: d.vazia ?? null, podeExcluir: d.podeExcluir ?? null } : {}) };
+    if (d.arquivo) { g.arquivos++; if ('vazia' in g) g.vazia = false; }
     grupos.set(k, g);
   }
   return [...grupos.values()].sort((a, b) => a.empresa.localeCompare(b.empresa, 'pt-BR'));

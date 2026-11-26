@@ -297,7 +297,9 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   const lerSo = new Set((descer || conhecidas).map(semAcento));
   const desce = p => !soConhecidas || raizUnica || lerSo.has(semAcento(nomeDe(p)));
   const fila = projetos.filter(desce).map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
-  const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema' }));
+  const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema',
+    // o que o Onvio informa da pasta (sem abrir): vazia? (hasChildren) e se o usuário pode excluir. null = o Onvio não disse.
+    pastaId: p.id != null ? String(p.id) : '', pastaTipo: 'Projects', vazia: p.hasChildren === false ? true : p.hasChildren === true ? false : null, podeExcluir: p.permissions && typeof p.permissions.delete === 'boolean' ? p.permissions.delete : null }));
   const _amostra = { pasta: null, doc: null }; let truncado = false, itens = 0;
   const NOS_POR_VEZ = rapido ? 4 : 1;                           // pastas da mesma empresa lidas juntas (o resultado é o mesmo, só chega antes)
   while (fila.length) {

@@ -85,3 +85,13 @@ test('demanda do Hub: parada sem demanda não alerta; sem informação do Hub co
   assert.equal(demandaDe(null, '11222333000181').comDemanda, null);
   assert.deepEqual(demandaParaMapa([{ raiz: '11222333', setores: ['Fiscal', 'Financeiro'] }, { raiz: '11222333', setores: ['Pessoal'] }, { raiz: 'x', setores: [] }]), { '11222333': ['Fiscal', 'Pessoal'] });
 });
+
+test('pastas fora do padrão: guarda se o Onvio diz que a pasta está vazia (0 arquivos lidos não prova isso)', () => {
+  const docs = [
+    { empresa: 'A', cnpj: '1', pasta: 'zlkx-c', arquivo: '', origem: 'sistema', pastaId: 'p1', pastaTipo: 'Projects', vazia: true, podeExcluir: true },
+    { empresa: 'B', cnpj: '2', pasta: 'zlkx-c', arquivo: '', origem: 'sistema', pastaId: 'p2', pastaTipo: 'Projects', vazia: false, podeExcluir: true },
+    { empresa: 'C', cnpj: '3', pasta: 'zlkx-c', arquivo: '', origem: 'sistema', pastaId: 'p3', pastaTipo: 'Projects', vazia: null, podeExcluir: null },
+  ];
+  const r = checkPastas(docs, { allowedFolders: ['Fiscal'] });
+  assert.deepEqual(r.map(x => [x.empresa, x.vazia, x.podeExcluir, x.pastaId]), [['A', true, true, 'p1'], ['B', false, true, 'p2'], ['C', null, null, 'p3']]);
+});
