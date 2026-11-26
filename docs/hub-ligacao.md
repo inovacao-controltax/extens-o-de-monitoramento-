@@ -73,3 +73,6 @@ Empresas de raízes de CNPJ diferentes que são atendidas como uma só (uma resp
 
 ## Nome "Grupo X" (0.20.1)
 Em Últimos envios a linha de um grupo de empresas aparece como **Grupo Atacapet** (o "Grupo" é acrescentado se o nome cadastrado ainda não começa assim), para reconhecer de relance que é um grupo e não uma empresa.
+
+## Resumo do dia (0.21.0)
+No topo de **Hoje**, um cartão **Resumo do dia** mostra o que apareceu nas últimas 24 horas por monitor (com o texto das primeiras novidades; o clique abre o monitor) e quanto cada monitor mudou desde ontem. Vem do histórico que a extensão já guarda: **sem permissão nova, sem notificação do Chrome e sem leitura extra** (o sino e a bolinha continuam avisando as novas). Sem histórico ainda, o cartão não aparece. A notificação do Chrome ficou de fora porque exigiria a permissão `notifications`; se um dia valer a pena, entra como opção à parte.

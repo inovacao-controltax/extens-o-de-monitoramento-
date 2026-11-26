@@ -61,6 +61,22 @@ export function evolucao(h, dias = 7, now = new Date()) {
   return Object.keys(fim.n).map(k => ({ k, agora: fim.n[k], antes: antes.n[k] ?? null, delta: antes.n[k] == null ? null : fim.n[k] - antes.n[k], desde: antes.em }));
 }
 
+/**
+ * Resumo do dia: o que apareceu nas últimas 24 h (por monitor, com o texto das novidades) e quanto cada monitor mudou desde ontem.
+ * Só lê o histórico que já existe; sem permissão nova e sem notificação do Chrome. { novas: [{ k, n, textos }], variacao: [{ k, agora, delta }], total }
+ */
+export function resumoDoDia(h, now = new Date()) {
+  const corte = now.getTime() - DIA, por = new Map();
+  for (const n of (h && h.novas) || []) {
+    if (Date.parse(n.em) < corte) continue;
+    const x = por.get(n.k) || por.set(n.k, { k: n.k, n: 0, textos: [] }).get(n.k);
+    x.n++; if (x.textos.length < 3) x.textos.push(n.texto);
+  }
+  const novas = [...por.values()].sort((a, b) => b.n - a.n);
+  const variacao = evolucao(h, 1, now).filter(e => e.delta !== null && e.delta !== 0).map(e => ({ k: e.k, agora: e.agora, delta: e.delta }));
+  return { novas, variacao, total: novas.reduce((s, x) => s + x.n, 0) };
+}
+
 /** CSV (separador ;, com BOM para o Excel abrir em UTF-8). linhas: arrays de texto. */
 export function paraCsv(linhas) {
   const cel = v => { const t = String(v ?? '').replace(/\r?\n/g, ' '); return /[;"]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
