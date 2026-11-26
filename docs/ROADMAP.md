@@ -21,6 +21,6 @@
 | 10 | **Demanda e grupos** (0.19 a 0.20): alerta padrão de 90 dias, demanda por setor vinda do Hub (436) — parada sem demanda não alerta —, grupos de empresas (Atacapet + RB + YB) | feito; demanda conferida com o Gestta |
 | 11 | **Resumo do dia** (0.21): novidades das últimas 24 h e variação desde ontem, sem permissão nova | feito, a conferir no uso |
 | 12 | **Padrão de pastas pela empresa modelo 9999** (0.22) | feito, a conferir no Onvio real |
-| 13 | Próximos, por decisão do Josué: ler só os meses recentes (leitura mais rápida); parar de ler a pasta Financeiro; notificação do Chrome (exige permissão nova); grupos entre raízes também no Hub | aberto |
+| 13 | **Decidido não fazer (Josué, 26/11/2026):** ler só os meses recentes e parar de ler a pasta Financeiro. O monitor de nomes fora do padrão depende de TODOS os arquivos dos clientes, e não vale ganhar velocidade perdendo esse monitoramento. A velocidade vem da leitura adaptativa. **Em aberto:** grupos entre raízes também no Hub; notificação do Chrome (exige permissão nova) | decidido |
 
 Ideia geral e arquitetura: veja `IDEIA.md`.
