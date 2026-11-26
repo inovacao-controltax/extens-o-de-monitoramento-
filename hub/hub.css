@@ -220,3 +220,17 @@ progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-de
 
 .passos{margin:0 0 var(--sp-3);padding-left:var(--sp-5);font-size:var(--fs-control);color:var(--ink-2);}
 .passos li{margin:4px 0;}
+
+/* Correções no Onvio (nomes e pastas): barra compacta e tabela enxuta */
+.pl-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap;padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--rule);}
+.pl-t{font-weight:600;color:var(--ink);}
+.pl-bar .muted{color:var(--ink-2);font-size:var(--fs-control);}
+.pl-corpo{padding:0 var(--sp-4) var(--sp-3);}
+.pl-tab{width:100%;border-collapse:collapse;font-size:var(--fs-control);}
+.pl-tab th{font-weight:600;color:var(--ink-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--rule);}
+.pl-tab td{padding:6px 8px;border-bottom:1px solid var(--rule);}
+.pl-tab .r{text-align:right;white-space:nowrap;}
+.pl-nome{max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pl-aviso{color:var(--ink-2);}
+.pl-mais{margin-top:var(--sp-2);}
+.pl-mais summary{cursor:pointer;color:var(--ink-2);padding:6px 0;}

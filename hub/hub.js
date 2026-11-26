@@ -9,7 +9,7 @@ import { renderColeta } from './coleta-view.js';
 import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel, saveSnapshot, saveSnapshotCompleto } from '../src/snapshot.js';
 import { criarFetcher, criarEscritor } from '../src/onvio-tab.js';
 import { corrigirNomes, desfazerNomes, MOTIVOS_FALHA } from '../src/corrigir-escrita.js';
-import { gruposExcluiveis, enviarPastasParaLixeira, MOTIVOS_PASTA } from '../src/excluir-pastas.js';
+import { gruposExcluiveis, enviarPastasParaLixeira, liberadoComConteudo, MOTIVOS_PASTA } from '../src/excluir-pastas.js';
 import { confirmModal } from './config-view.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
@@ -303,9 +303,17 @@ const primeiraLixeira = () => !correcoesPastas.rodadas.some(r => r.feitos.length
 function excluirPastasHtml() {
   const grupos = gruposExcluiveis(data('pastas')).filter(g => g.itens.length || g.comConteudo);
   if (!grupos.length || !real()) return '';
-  const linhas = grupos.map(g => `<div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0"><span><b>${esc(g.nome)}</b> · <span class="badge s-ok">${g.itens.length} vazia${g.itens.length === 1 ? '' : 's'}</span>${g.comConteudo ? ` <span class="badge s-warn">${g.comConteudo} com conteúdo</span>` : ''}${g.naoVerificadas ? ` <span class="muted">${g.naoVerificadas} não verificada${g.naoVerificadas === 1 ? '' : 's'}</span>` : ''}</span>${g.itens.length ? `<button type="button" class="btn btn-sm btn-primary" data-lixeira="${esc(g.nome)}">${corrigindo ? 'Parar' : primeiraLixeira() ? 'Enviar 1 vazia para a lixeira (teste)' : `Enviar ${Math.min(g.itens.length, MAX_RODADA)} vazia${g.itens.length === 1 ? '' : 's'} para a lixeira`}</button>` : ''}</div>`).join('');
-  return `<div style="padding:12px 16px;border-bottom:1px solid var(--border,#e5e7eb)"><h3 class="sub-h">Excluir pastas vazias fora do padrão</h3>
-    <p class="note-txt" style="margin:4px 0 8px">Só vão para a <b>lixeira do Onvio</b> as pastas que o Onvio diz estarem <b>vazias</b> agora, uma por vez, conferindo antes. Pasta com conteúdo nunca é enviada. ${primeiraLixeira() ? 'A primeira vez envia <b>só 1 pasta</b>, para você conferir no Onvio.' : ''} Dá para restaurar pela lixeira do próprio Onvio.</p>${linhas}</div>`;
+  const vazias = grupos.reduce((n, g) => n + g.itens.length, 0), comConteudo = grupos.reduce((n, g) => n + g.comConteudo, 0);
+  const libera = g => liberadoComConteudo(g.nome, cfg.pastasLixeiraComConteudo) && g.itensComConteudo.length;
+  const comVazias = grupos.filter(g => g.itens.length || libera(g));
+  if (!comVazias.length) return `<div class="pl-bar"><span class="pl-t">Pastas vazias para a lixeira</span><span class="muted">Nenhuma pasta fora do padrão está vazia: as ${comConteudo} encontradas têm conteúdo e não são enviadas.</span></div>`;
+  const linha = g => `<tr><td class="pl-nome" title="${esc(g.nome)}">${esc(g.nome)}</td><td class="num r">${g.itens.length}</td><td class="num r ${g.comConteudo ? 'pl-aviso' : 'muted'}">${g.comConteudo || '—'}</td><td class="r">${g.itens.length ? `<button type="button" class="btn btn-sm" data-lixeira="${esc(g.nome)}">${corrigindo ? 'Parar' : 'Enviar vazias'}</button>` : ''}${libera(g) ? ` <button type="button" class="btn btn-sm btn-danger" data-lixeira-conteudo="${esc(g.nome)}" title="Esta pasta foi liberada por você para ir à lixeira mesmo com arquivos dentro">${corrigindo ? 'Parar' : `Enviar com conteúdo (${g.itensComConteudo.length})`}</button>` : ''}</td></tr>`;
+  const topo = comVazias.slice(0, 6), resto = comVazias.slice(6);
+  const tabela = l => `<div class="tbl-wrap"><table class="pl-tab"><thead><tr><th>Pasta</th><th class="r">Vazias</th><th class="r">Com conteúdo</th><th></th></tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>`;
+  return `<div class="pl-bar"><div><span class="pl-t">Pastas vazias para a lixeira</span><span class="muted"> · ${vazias} vazia${vazias === 1 ? '' : 's'} em ${comVazias.length} nome${comVazias.length === 1 ? '' : 's'}${comConteudo ? ` · ${comConteudo} com conteúdo (só vão as liberadas por você)` : ''}</span></div>
+    ${vazias ? `<button type="button" class="btn btn-primary btn-sm" data-lixeira-todas>${corrigindo ? 'Parar' : primeiraLixeira() ? 'Enviar 1 vazia (teste)' : `Enviar todas as vazias (${Math.min(vazias, MAX_RODADA)})`}</button>` : ''}</div>
+    <p class="note-txt" style="margin:0 16px 8px">Vão para a lixeira do Onvio, uma por vez, só as que o Onvio confirma vazias na hora. Dá para restaurar pela lixeira do Onvio. ${primeiraLixeira() ? 'A primeira vez envia <b>só 1</b>, para você conferir.' : ''}</p>
+    <div class="pl-corpo">${tabela(topo)}${resto.length ? `<details class="pl-mais"><summary>Ver os outros ${resto.length} nomes</summary>${tabela(resto)}</details>` : ''}</div>`;
 }
 async function aplicarPastasNaLeitura(ids) {
   const set = new Set(ids);
@@ -315,20 +323,24 @@ async function aplicarPastasNaLeitura(ids) {
     if (s.docs.length !== antes) await salvar(s);
   }
 }
-async function enviarParaLixeiraAgora(botao, nome) {
+async function enviarParaLixeiraAgora(botao, nome, conteudo = false) {      // nome nulo = todas as vazias de todos os nomes; conteudo = as COM conteúdo de um nome liberado
   if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
-  const g = gruposExcluiveis(data('pastas')).find(x => x.nome === nome); if (!g || !g.itens.length) return;
-  const primeira = primeiraLixeira(), itens = primeira ? g.itens.slice(0, 1) : g.itens.slice(0, MAX_RODADA);
-  const amostra = itens.slice(0, 8).map(i => `${i.empresa} (${formatCnpj(i.cnpj)})\nPasta: ${i.pasta}`).join('\n\n');
-  const okc = await confirmModal({ title: `Enviar ${itens.length} pasta${itens.length === 1 ? '' : 's'} "${nome}" para a lixeira do Onvio?`, ok: 'Enviar para a lixeira', danger: true, text: `${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só esta pasta, para você conferir no Onvio antes de continuar. ' : ''}Só pastas vazias, uma por vez, conferindo cada uma antes. Vão para a lixeira do Onvio e dá para restaurar de lá.` });
+  if (conteudo && !liberadoComConteudo(nome, cfg.pastasLixeiraComConteudo)) return;
+  const gs = gruposExcluiveis(data('pastas')).filter(x => (nome === null || x.nome === nome) && (conteudo ? x.itensComConteudo.length : x.itens.length)); if (!gs.length) return;
+  const todos = gs.flatMap(x => conteudo ? x.itensComConteudo : x.itens);
+  const primeira = conteudo ? !correcoesPastas.rodadas.some(r => r.comConteudo && r.feitos.length) : primeiraLixeira(), itens = primeira ? todos.slice(0, 1) : todos.slice(0, MAX_RODADA);
+  const resumo = nome === null && !primeira ? gs.map(x => `${x.nome}: ${x.itens.length}`).join('\n') + '\n\n' : '';
+  const amostra = resumo + itens.slice(0, 8).map(i => `${i.empresa} (${formatCnpj(i.cnpj)})\nPasta: ${i.pasta}`).join('\n\n');
+  const aviso = conteudo ? `ATENÇÃO: estas pastas TÊM ARQUIVOS DENTRO. Elas e tudo que está nelas vão para a lixeira do Onvio (dá para restaurar de lá). Você liberou a pasta "${nome}".\n\n` : '';
+  const okc = await confirmModal({ title: `Enviar ${itens.length} pasta${itens.length === 1 ? '' : 's'} ${conteudo ? '"' + nome + '" COM CONTEÚDO' : nome === null ? 'vazia' + (itens.length === 1 ? '' : 's') : '"' + nome + '"'} para a lixeira do Onvio?`, ok: 'Enviar para a lixeira', danger: true, text: `${aviso}${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só esta pasta, para você conferir no Onvio antes de continuar. ' : ''}${conteudo ? 'Uma por vez, conferindo cada uma antes.' : 'Só pastas vazias, uma por vez, conferindo cada uma antes.'} Vão para a lixeira do Onvio e dá para restaurar de lá.` });
   if (!okc) return;
   let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
   corrigindo = { parar: false }; render(false);
-  const r = await enviarPastasParaLixeira(itens, { ler, escrever, parar: () => corrigindo && corrigindo.parar, onProgresso: p => toast(`Enviando para a lixeira… ${p.ok} de ${p.total}`) });
+  const r = await enviarPastasParaLixeira(itens, { incluirConteudo: conteudo, ler, escrever, parar: () => corrigindo && corrigindo.parar, onProgresso: p => toast(`Enviando para a lixeira… ${p.ok} de ${p.total}`) });
   corrigindo = null;
-  if (r.feitos.length) { correcoesPastas.rodadas = [...correcoesPastas.rodadas, { em: new Date().toISOString(), nome, feitos: r.feitos, falhas: r.falhas.length, parou: r.parou }].slice(-20); try { await chrome.storage.local.set({ 'monitor-correcoes-pastas': correcoesPastas }); } catch (e) { /* o registro é só para consulta */ } await aplicarPastasNaLeitura(r.feitos.map(f => f.pastaId)); }
+  if (r.feitos.length) { correcoesPastas.rodadas = [...correcoesPastas.rodadas, { em: new Date().toISOString(), nome: nome === null ? '(todas as vazias)' : nome, comConteudo: !!conteudo, feitos: r.feitos, falhas: r.falhas.length, parou: r.parou }].slice(-20); try { await chrome.storage.local.set({ 'monitor-correcoes-pastas': correcoesPastas }); } catch (e) { /* o registro é só para consulta */ } await aplicarPastasNaLeitura(r.feitos.map(f => f.pastaId)); }
   const motivo = r.falhas.length ? ` ${r.falhas.length} não enviada${r.falhas.length === 1 ? '' : 's'}: ${MOTIVOS_PASTA[r.falhas[0].motivo] || r.falhas[0].motivo}.` : '';
-  toast(`${r.feitos.length} pasta${r.feitos.length === 1 ? '' : 's'} enviada${r.feitos.length === 1 ? '' : 's'} para a lixeira.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ` Confira no Onvio: ${itens[0].empresa}, a pasta "${nome}" deve estar na lixeira. Se estiver certo, clique de novo para as demais.` : ''}`, r.feitos.length ? 'ok' : 'warn');
+  toast(`${r.feitos.length} pasta${r.feitos.length === 1 ? '' : 's'} enviada${r.feitos.length === 1 ? '' : 's'} para a lixeira.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ` Confira no Onvio: ${itens[0].empresa}, a pasta "${itens[0].pasta}" deve estar na lixeira. Se estiver certo, clique de novo para as demais.` : ''}`, r.feitos.length ? 'ok' : 'warn');
   recompute(); render(false);
 }
 function correcaoNomesHtml() {
@@ -420,6 +432,8 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-lixeira]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeira)));
+  v.querySelectorAll('[data-lixeira-conteudo]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeiraConteudo, true)));
+  v.querySelectorAll('[data-lixeira-todas]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, null)));
   v.querySelectorAll('[data-corrigir-nomes]').forEach(e => e.addEventListener('click', () => corrigirNomesAgora(e)));
   v.querySelectorAll('[data-desfazer-nomes]').forEach(e => e.addEventListener('click', desfazerNomesAgora));
   v.querySelectorAll('[data-avisar]').forEach(e => e.addEventListener('click', () => abrirAviso(e.dataset.avisar)));
