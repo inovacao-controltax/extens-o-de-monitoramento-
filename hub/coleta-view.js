@@ -51,7 +51,7 @@ export async function renderColeta(root, { toast, onChanged }) {
     return `<h3 class="sub-h">Desempenho da última leitura completa</h3><ul class="kv"><li><span>Tempo</span><b class="num">${duracaoDe(d.ms)}</b></li><li><span>Chamadas ao Onvio</span><b class="num">${d.chamadas} (${d.chamadasPorSegundo}/s)</b></li>
       <li><span>Resposta média</span><b class="num">${d.latenciaMediaMs} ms</b></li><li><span>Limite de chamadas ao mesmo tempo</span><b class="num">pico ${d.limitePico} · final ${d.limiteFinal}</b></li>
       <li><span>Recuos por recusa do Onvio</span><b class="num">${d.recuos}</b></li><li><span>Reduções por lentidão</span><b class="num">${d.reducoesPorLentidao}</b></li>
-      <li><span>Empresas recuperadas na 2ª passada</span><b class="num">${d.recuperadas}</b></li></ul><p class="note-txt">${rotas}</p>`;
+      <li><span>Empresas recuperadas na 2ª passada</span><b class="num">${d.recuperadas}</b></li>${d.pastasVaziasPuladas != null ? `<li><span>Pastas vazias que não precisaram ser abertas</span><b class="num">${d.pastasVaziasPuladas}</b></li><li><span>Páginas extras poupadas</span><b class="num">${d.paginasPoupadas || 0}</b></li>` : ''}</ul><p class="note-txt">${rotas}</p>`;
   };
   async function dados() {
     const s = await loadSnapshot();
