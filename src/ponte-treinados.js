@@ -52,23 +52,23 @@
     }
     return null;
   }
-  async function consultar() {
+  async function consultar(acao, extra) {
     const token = await codigo();
     if (!token) return { ok: false, motivo: 'sem-codigo' };
     const h = await acharHub();
     if (!h) return { ok: false, motivo: 'sem-hub' };
     const id = novoNonce();
     const resposta = new Promise(r => { pendentes.set(id, r); setTimeout(() => { if (pendentes.delete(id)) r({ ok: false, motivo: 'sem-resposta' }); }, 20000); });
-    try { h.win.postMessage({ ctlhub: 1, de: 'ext', tipo: 'consulta', acao: 'treinados', id, token }, '*'); } catch (e) { hub = null; return { ok: false, motivo: 'sem-hub' }; }
+    try { h.win.postMessage(Object.assign({ ctlhub: 1, de: 'ext', tipo: 'consulta', acao, id, token }, extra || {}), '*'); } catch (e) { hub = null; return { ok: false, motivo: 'sem-hub' }; }
     const r = await resposta;
     if (!r.ok && (r.motivo === 'token')) hub = null;
-    return r.ok ? { ok: true, treinados: Array.isArray(r.treinados) ? r.treinados : [] } : { ok: false, motivo: String(r.motivo || 'erro'), mensagem: String(r.mensagem || '') };
+    return r.ok ? { ok: true, treinados: Array.isArray(r.treinados) ? r.treinados : [], contatos: Array.isArray(r.contatos) ? r.contatos : [] } : { ok: false, motivo: String(r.motivo || 'erro'), mensagem: String(r.mensagem || '') };
   }
   try {
     chrome.runtime.onMessage.addListener((msg, sender, responder) => {
-      if (!msg || msg.tipo !== 'hub-treinados' || !vivo()) return;
-      consultar().then(responder, () => responder({ ok: false, motivo: 'erro' }));
-      return true;
+      if (!msg || !vivo()) return;
+      if (msg.tipo === 'hub-treinados') { consultar('treinados').then(responder, () => responder({ ok: false, motivo: 'erro' })); return true; }
+      if (msg.tipo === 'hub-contatos' && /^[0-9A-Z]{8}$/.test(String(msg.raiz || ''))) { consultar('contatos', { raiz: String(msg.raiz) }).then(responder, () => responder({ ok: false, motivo: 'erro' })); return true; }
     });
   } catch (e) { /* extensão atualizada: recarregue a aba */ }
 })();

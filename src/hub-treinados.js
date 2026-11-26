@@ -24,7 +24,7 @@ export const MOTIVOS = {
   'token': 'O Hub recusou o código de pareamento. Confira se é o mesmo que aparece no Hub.',
   'sem-resposta': 'O Hub não respondeu a tempo. Tente de novo.',
   'versao-antiga': 'O Hub publicado ainda não tem a ligação com esta extensão (Hub 432 ou mais novo).',
-  'acao': 'O Hub publicado ainda não tem a ligação com esta extensão (Hub 432 ou mais novo).',
+  'acao': 'O Hub publicado ainda não tem esta função (precisa do Hub 435 ou mais novo para os contatos).',
   'recusado': 'Pedido recusado.',
 };
 const msg = r => MOTIVOS[r.motivo] || r.mensagem || `Não deu certo (${r.motivo || 'erro'}).`;
@@ -45,4 +45,16 @@ export async function puxarTreinados() {
     if (!s.ok) return grava({ ok: false, motivo: 'salvar', msg: 'Não foi possível salvar a lista.' });
     return grava({ ok: true, n: rows.length, descartadas: descartadas.length, msg: `${rows.length} empresas 100% treinadas${descartadas.length ? `, ${descartadas.length} sem CNPJ válido` : ''}.` });
   } catch (e) { return grava({ ok: false, motivo: 'erro', msg: String(e && e.message || e).slice(0, 160) }); }
+}
+
+/** Contatos do grupo da empresa no Hub (para o aviso). Devolve { ok, contatos, msg }. Nada é guardado. */
+export async function contatosDoHub(cnpj) {
+  try {
+    const cfg = await loadConfig();
+    if (!String(cfg.hubCodigo || '').trim()) return { ok: false, motivo: 'sem-codigo', msg: MOTIVOS['sem-codigo'] };
+    const raiz = normalizeCnpj(cnpj).slice(0, 8);
+    const r = await chrome.runtime.sendMessage({ tipo: 'puxar-contatos', raiz });
+    if (!r || !r.ok) return { ok: false, motivo: (r && r.motivo) || 'erro', msg: msg(r || {}) };
+    return { ok: true, contatos: r.contatos || [] };
+  } catch (e) { return { ok: false, motivo: 'erro', msg: String(e && e.message || e).slice(0, 160) }; }
 }

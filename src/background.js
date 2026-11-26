@@ -60,3 +60,23 @@ chrome.runtime.onMessage.addListener((msg, sender, responder) => {
   })();
   return true;
 });
+
+// Contatos de uma empresa (para o "Para" e a cópia do aviso): só a pedido de uma página da própria extensão; o Hub só responde com o código de pareamento.
+chrome.runtime.onMessage.addListener((msg, sender, responder) => {
+  if (!msg || msg.tipo !== 'puxar-contatos') return;
+  (async () => {
+    try {
+      if (sender.id !== chrome.runtime.id) return responder({ ok: false, motivo: 'recusado' });
+      const raiz = String(msg.raiz || '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 8);
+      if (raiz.length !== 8) return responder({ ok: false, motivo: 'erro', mensagem: 'CNPJ inválido' });
+      const abas = await chrome.tabs.query({ url: 'https://claude.ai/*' });
+      if (!abas.length) return responder({ ok: false, motivo: 'sem-hub' });
+      let ultimo = { ok: false, motivo: 'sem-ponte' };
+      for (const a of abas) {
+        try { const r = await chrome.tabs.sendMessage(a.id, { tipo: 'hub-contatos', raiz }); if (r && r.ok) return responder(r); if (r) ultimo = r; } catch (e) { /* aba sem a ponte: recarregar (F5) */ }
+      }
+      responder(ultimo);
+    } catch (e) { responder({ ok: false, motivo: 'erro', mensagem: String(e && e.message || e).slice(0, 160) }); }
+  })();
+  return true;
+});

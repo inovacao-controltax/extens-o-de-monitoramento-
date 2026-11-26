@@ -1,7 +1,7 @@
 import { SAMPLE } from '../src/mock.js';
 import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
-import { puxarTreinados } from '../src/hub-treinados.js';
-import { montarAviso, linkZimbra } from '../src/aviso.js';
+import { puxarTreinados, contatosDoHub } from '../src/hub-treinados.js';
+import { montarAviso, linkZimbra, destinatarios } from '../src/aviso.js';
 import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
@@ -326,13 +326,26 @@ function abrirAviso(cnpj) {
   let data = ''; if (st && st.dias !== null) data = new Date(Date.now() - st.dias * 864e5).toISOString().slice(0, 10);
   const m = montarAviso(cfg, { empresa: r.empresa, dias: r.dias, data });
   const d = dialogo(`<div class="dlg-body" style="display:grid;gap:10px;min-width:min(620px,92vw)"><h2 style="margin:0">Avisar ${esc(r.empresa)}</h2>
-    <p class="note-txt" style="margin:0">Confira e edite o texto. O botão abre o rascunho no Zimbra; <b>quem envia é você</b>. Escolha o destinatário lá (o contato do portal da empresa).</p>
+    <p class="note-txt" style="margin:0">Confira e edite o texto. O botão abre o rascunho no Zimbra; <b>quem envia é você</b>. Os contatos da empresa vêm do Control Hub (Para: quem tem acesso a mais setores; os outros em cópia) e você pode ajustar.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="field">Para<input id="av-para" autocomplete="off" spellcheck="false" placeholder="e-mail do contato"></label><label class="field">Cópia<input id="av-cc" autocomplete="off" spellcheck="false" placeholder="outros e-mails, separados por vírgula"></label></div>
+    <p class="note-txt" id="av-contatos" style="margin:0">Buscando os contatos no Hub…</p>
     <label class="field">Assunto<input id="av-assunto" value="${esc(m.assunto)}" maxlength="150" autocomplete="off"></label>
     <label class="field">Mensagem<textarea id="av-corpo" rows="10" style="width:100%">${esc(m.corpo)}</textarea></label>
     <div class="row" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button type="button" class="btn" id="av-copiar">Copiar texto</button><button type="button" class="btn" id="av-fecha">Cancelar</button><a class="btn btn-primary" id="av-zimbra" href="#" target="_blank" rel="noopener">Abrir no Zimbra</a></div></div>`);
-  const link = () => linkZimbra(cfg.zimbraUrl, { assunto: d.querySelector('#av-assunto').value, corpo: d.querySelector('#av-corpo').value });
+  const link = () => linkZimbra(cfg.zimbraUrl, { assunto: d.querySelector('#av-assunto').value, corpo: d.querySelector('#av-corpo').value, para: d.querySelector('#av-para').value.trim(), cc: d.querySelector('#av-cc').value.trim() });
   const za = d.querySelector('#av-zimbra'); za.href = link();
-  ['#av-assunto', '#av-corpo'].forEach(q => d.querySelector(q).addEventListener('input', () => { za.href = link(); }));
+  ['#av-assunto', '#av-corpo', '#av-para', '#av-cc'].forEach(q => d.querySelector(q).addEventListener('input', () => { za.href = link(); }));
+  contatosDoHub(r.cnpj).then(c => {                 // contatos do grupo no Hub: só em memória, nunca guardados
+    if (!d.isConnected) return;
+    const nota = d.querySelector('#av-contatos');
+    if (!c.ok) { nota.textContent = `Contatos não carregados: ${c.msg || 'tente de novo'} Escolha o destinatário no Zimbra.`; return; }
+    const dest = destinatarios(c.contatos);
+    if (!dest.total) { nota.textContent = 'O Hub não tem contato com e-mail para esta empresa. Escolha o destinatário no Zimbra.'; return; }
+    if (!d.querySelector('#av-para').value) d.querySelector('#av-para').value = dest.para;
+    if (!d.querySelector('#av-cc').value) d.querySelector('#av-cc').value = dest.cc.join(', ');
+    nota.textContent = `${dest.total} contato${dest.total > 1 ? 's' : ''} no Hub${dest.cortados ? ` (${dest.cortados} ficaram de fora da cópia)` : ''}: ${dest.pessoas.slice(0, 4).map(x => `${x.nome || x.email}${x.setores.length ? ' (' + x.setores.join(', ') + ')' : ''}`).join('; ')}${dest.pessoas.length > 4 ? '…' : ''}`;
+    za.href = link();
+  });
   d.querySelector('#av-fecha').addEventListener('click', () => d.close());
   d.querySelector('#av-copiar').addEventListener('click', async () => { try { await navigator.clipboard.writeText(`${d.querySelector('#av-assunto').value}\n\n${d.querySelector('#av-corpo').value}`); toast('Texto copiado'); } catch (e) { toast('Não foi possível copiar', 'warn'); } });
   za.addEventListener('click', async () => {       // registra o dia em que o rascunho foi aberto (não quer dizer que foi enviado)
