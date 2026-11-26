@@ -216,29 +216,51 @@ export function origemDoDocumento(d) {
 }
 /** Identificador de quem criou o item (o Onvio só informa `createdBy.userGuid`, sem dizer se é cliente ou escritório). */
 const autorDe = x => { const c = x && (x.createdBy || x.uploadedBy || x.addedBy); return c && typeof c === 'object' && c.userGuid ? String(c.userGuid) : ''; };
+const GUID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+export const normGuid = s => String(s || '').toLowerCase().replace(/-/g, '');
+const grupoDe = d => { const n = String(d.cnpj || '').toUpperCase().replace(/[^0-9A-Z]/g, ''); return n.length >= 8 ? n.slice(0, 8) : (n || d.empresa); };   // matriz e filiais contam como UMA empresa
+/** Identificadores (GUID) de todos os funcionários do escritório, para comparar com quem enviou cada arquivo. Só em memória. */
+export async function idsDaEquipe(fetcher) {
+  const ids = new Set(); let vistos = 0;
+  for (let pag = 0; pag < 5; pag++) {
+    const d = await fetcher(`${API}br-payroll-sr/v1/employees?itemsPerPage=500&pageIndex=${pag}`);
+    for (const x of listaDe(d)) {
+      if (!x || typeof x !== 'object') continue; vistos++;
+      const ver = (o, prof) => { for (const v of Object.values(o)) { if (typeof v === 'string' && GUID.test(v)) ids.add(normGuid(v)); else if (v && typeof v === 'object' && !Array.isArray(v) && prof < 2) ver(v, prof + 1); } };
+      ver(x, 0);
+    }
+    const total = Number(d && d.totalItems) || 0, paginas = Number(d && d.totalPages) || 1;
+    if (pag + 1 >= paginas || (total && vistos >= total)) break;
+  }
+  return ids;
+}
 /**
- * Define a origem de cada arquivo pelo autor: quem envia para MUITAS empresas (ou é o usuário logado) é do escritório; quem aparece em
- * poucas é cliente. Heurística, até o vínculo com a lista de funcionários ser mapeado. Sem autor, mantém o que já tinha ('indefinida').
- * minEmpresas: em quantas empresas diferentes o autor tem de aparecer para ser do escritório (3 se a leitura for pequena).
+ * Define a origem de cada arquivo pelo autor (o Onvio só informa `createdBy.userGuid`, sem dizer se é cliente ou escritório):
+ *  1) EXATO, se o identificador de algum autor aparece na lista de funcionários do escritório (`equipeIds`): quem está na lista é escritório e
+ *     os demais são clientes. Um GUID não bate por acaso, então basta UM autor coincidir para o vínculo valer;
+ *  2) senão, heurística: quem envia para MUITAS empresas (ou é o usuário logado) é do escritório. Matriz e filiais contam como UMA empresa (um
+ *     funcionário do cliente que envia para as 14 filiais do grupo não é do escritório).
+ * Sem autor, mantém o que já tinha ('indefinida'). minEmpresas: em quantos grupos diferentes o autor tem de aparecer (3; 6 se a leitura for grande).
  */
-export function classificarAutores(docs, { minEmpresas } = {}) {
+export function classificarAutores(docs, { minEmpresas, equipeIds } = {}) {
   const empresasDe = new Map(), eu = new Set();
-  const nEmp = new Set(docs.map(d => d.cnpj || d.empresa)).size;
+  const nEmp = new Set(docs.map(grupoDe)).size;
   const min = minEmpresas || (nEmp >= 30 ? 6 : 3);
   for (const d of docs) {
     if (!d.autor) continue;
     if (d.eu) eu.add(d.autor);
-    (empresasDe.get(d.autor) || empresasDe.set(d.autor, new Set()).get(d.autor)).add(d.cnpj || d.empresa);
+    (empresasDe.get(d.autor) || empresasDe.set(d.autor, new Set()).get(d.autor)).add(grupoDe(d));
   }
-  const esc = new Set([...empresasDe].filter(([g, e]) => e.size >= min).map(([g]) => g));
+  const naEquipe = equipeIds && equipeIds.size ? [...empresasDe.keys()].filter(g => equipeIds.has(normGuid(g))) : [];
+  const exato = naEquipe.length > 0;
+  const esc = exato ? new Set(naEquipe) : new Set([...empresasDe].filter(([g, e]) => e.size >= min).map(([g]) => g));
   eu.forEach(g => esc.add(g));
-  let cliente = 0;
   for (const d of docs) {
     if (!d.arquivo) { delete d.autor; delete d.eu; continue; }
-    if (d.autor) { d.origem = esc.has(d.autor) ? 'escritorio' : 'cliente'; if (d.origem === 'cliente') cliente++; }
+    if (d.autor) d.origem = esc.has(d.autor) ? 'escritorio' : 'cliente';
     delete d.autor; delete d.eu;                                       // o identificador não fica guardado
   }
-  return { distintos: empresasDe.size, escritorio: esc.size, clientes: empresasDe.size - esc.size, minEmpresas: min };
+  return { distintos: empresasDe.size, escritorio: esc.size, clientes: empresasDe.size - esc.size, minEmpresas: min, metodo: exato ? 'equipe' : 'heuristica', naEquipe: naEquipe.length };
 }
 const dia = v => { const s = String(v || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : ''; };
 
@@ -285,7 +307,7 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
  * onProgresso({feito,total}); onParcial({docs, qualidade}) a cada `cadaParcialMs` com o que já foi lido (docs já classificados, cópia);
  * parar() => true interrompe. Erro de sessão (AuthError) interrompe tudo; falha numa empresa não derruba as outras.
  */
-export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer, paralelo = 1, prioridade, onParcial, cadaParcialMs = 2500, rapido = false } = {}) {
+export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgresso, parar, conhecidas, descer, paralelo = 1, prioridade, onParcial, cadaParcialMs = 2500, rapido = false, equipeIds } = {}) {
   let alvo = clientes.filter(c => !c.inativo && c.ids.length);
   const ehPrior = c => !!prioridade && (prioridade.has(c.cnpj) || prioridade.has(String(c.cnpj || '').slice(0, 8)));   // pelo CNPJ ou pela raiz (matriz e filiais)
   if (prioridade && prioridade.size) alvo = [...alvo.filter(ehPrior), ...alvo.filter(c => !ehPrior(c))];
@@ -308,7 +330,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       // cadência adaptativa: quanto mais linhas já lidas, mais caro é entregar um parcial
       if (onParcial && Date.now() - ultimo >= (cadaParcialMs === 0 ? 0 : Math.max(cadaParcialMs, Math.min(15000, docs.length * 0.15)))) {
         ultimo = Date.now();
-        const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia);
+        const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia, { equipeIds });
         await onParcial({ docs: copia, empresas: empresas.slice(), qualidade: { ...resumo(copia), autores: aut } });
       }
       if (pausa && !rapido) await pausa(paralelo > 1 ? 60 : 150);
@@ -332,7 +354,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
     }));
   }
   if (fatal) throw fatal;
-  const aut = classificarAutores(docs);
+  const aut = classificarAutores(docs, { equipeIds });
   const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut });
   return { docs, empresas, qualidade: q };
 }
@@ -582,5 +604,50 @@ export function textoRelatorioNotificacoes(rep) {
   if (rep.booleanos && Object.keys(rep.booleanos).length) L.push('Campos verdadeiro/falso (contagem na amostra):', ...Object.entries(rep.booleanos).map(([c, v]) => `  ${c}: ${v}`));
   if (rep.avisos.length) L.push('', ...rep.avisos.map(a => `AVISO: ${a}`));
   if (rep.chamadas && rep.chamadas.length) L.push('', 'Chamadas ao Onvio (rota, quantas, falhas):', ...rep.chamadas.map(c => `  ${c.falhas ? '[FALHOU]' : '[ok]    '} ${c.rota}  x${c.n}${c.falhas ? `  falhas: ${c.falhas}  ${c.erro}` : ''}`));
+  return L.join('\n');
+}
+
+
+// ---------- Conferir autoria (amostra): o que a extensão decidiu de cada arquivo e se o vínculo com a equipe do escritório funciona ----------
+export async function diagnosticarAutoria(fetcher, clientes, { amostra = 12, prioridade, equipeIds, conhecidas = [], descer, pausa } = {}) {
+  const ehP = c => !!prioridade && (prioridade.has(c.cnpj) || prioridade.has(String(c.cnpj || '').slice(0, 8)));
+  let alvo = clientes.filter(c => !c.inativo && c.ids.length);
+  alvo = [...alvo.filter(ehP), ...alvo.filter(c => !ehP(c))].slice(0, amostra);
+  const docs = [], lidas = []; let falhas = 0;
+  for (const c of alvo) {
+    try { const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido: true }); r.docs.forEach(d => { d.empresa = c.nome; }); docs.push(...r.docs); lidas.push(c); }
+    catch (e) { if (e instanceof AuthError) throw e; falhas++; }
+  }
+  const comArquivo = docs.filter(d => d.arquivo);
+  const heur = comArquivo.map(d => ({ ...d })), exa = comArquivo.map(d => ({ ...d }));
+  const rh = classificarAutores(heur, {}), re = classificarAutores(exa, { equipeIds });
+  const guids = new Map();
+  for (const d of comArquivo) if (d.autor) { const g = guids.get(d.autor) || guids.set(d.autor, { grupos: new Set(), arquivos: 0 }).get(d.autor); g.grupos.add(grupoDe(d)); g.arquivos++; }
+  const naEquipe = new Set([...guids.keys()].filter(g => equipeIds && equipeIds.has(normGuid(g))));
+  const vinculo = re.metodo === 'equipe';
+  let divergentes = 0, heurEscritorioMasCliente = 0, heurClienteMasEscritorio = 0;
+  comArquivo.forEach((d, i) => {
+    if (!vinculo || !d.autor) return;
+    if (heur[i].origem !== exa[i].origem) { divergentes++; if (heur[i].origem === 'escritorio') heurEscritorioMasCliente++; else heurClienteMasEscritorio++; }
+  });
+  const conta = (lista, o) => lista.filter(d => d.origem === o).length;
+  const porEmpresa = lidas.map(c => {
+    const idx = comArquivo.map((d, i) => (d.empresa === c.nome ? i : -1)).filter(i => i >= 0);
+    return { empresa: c.nome, arquivos: idx.length, clienteEquipe: vinculo ? idx.filter(i => exa[i].origem === 'cliente').length : null, escritorioEquipe: vinculo ? idx.filter(i => exa[i].origem === 'escritorio').length : null,
+      clienteHeuristica: idx.filter(i => heur[i].origem === 'cliente').length, escritorioHeuristica: idx.filter(i => heur[i].origem === 'escritorio').length, semAutor: idx.filter(i => !comArquivo[i].autor).length };
+  });
+  return { empresasLidas: lidas.length, falhas, arquivos: comArquivo.length, autoresDistintos: guids.size, funcionariosNaLista: equipeIds ? equipeIds.size : 0, autoresNaEquipe: naEquipe.size, vinculo,
+    metodoUsado: re.metodo, porHeuristica: { cliente: conta(heur, 'cliente'), escritorio: conta(heur, 'escritorio'), semAutor: heur.filter(d => !d.autor && d.origem === 'indefinida').length || conta(heur, 'indefinida') },
+    porEquipe: vinculo ? { cliente: conta(exa, 'cliente'), escritorio: conta(exa, 'escritorio') } : null, divergentes, heuristicaDizEscritorioMasEClienteNaEquipe: heurEscritorioMasCliente, heuristicaDizClienteMasEEscritorioNaEquipe: heurClienteMasEscritorio, porEmpresa };
+}
+export function textoRelatorioAutoria(r) {
+  const L = ['CONFERÊNCIA DE AUTORIA (amostra; só contagens, sem nomes de pessoas nem identificadores)', ''];
+  L.push(`Empresas lidas: ${r.empresasLidas}${r.falhas ? ` (${r.falhas} falharam)` : ''} · arquivos: ${r.arquivos} · autores distintos: ${r.autoresDistintos}`);
+  L.push(`Funcionários do escritório com identificador na lista: ${r.funcionariosNaLista} · autores dos arquivos que são funcionários: ${r.autoresNaEquipe}`);
+  L.push(r.vinculo ? '[ok] O identificador de quem enviou o arquivo BATE com a lista de funcionários: a autoria é exata (cliente = quem não é funcionário).' : '[ATENÇÃO] Nenhum autor dos arquivos aparece na lista de funcionários: a autoria é uma dedução (quem envia para vários grupos de empresas é escritório) e pode errar.');
+  L.push(`Pela dedução: cliente ${r.porHeuristica.cliente} · escritório ${r.porHeuristica.escritorio}`);
+  if (r.porEquipe) L.push(`Pela lista de funcionários: cliente ${r.porEquipe.cliente} · escritório ${r.porEquipe.escritorio} · onde divergem: ${r.divergentes} (a dedução dizia escritório e é cliente: ${r.heuristicaDizEscritorioMasEClienteNaEquipe}; dizia cliente e é escritório: ${r.heuristicaDizClienteMasEEscritorioNaEquipe})`);
+  L.push('', 'Por empresa (arquivos · cliente/escritório pela lista de funcionários · cliente/escritório pela dedução · sem autor):');
+  for (const e of r.porEmpresa) L.push(`  ${e.empresa}: ${e.arquivos} · ${e.clienteEquipe === null ? '—' : e.clienteEquipe + '/' + e.escritorioEquipe} · ${e.clienteHeuristica}/${e.escritorioHeuristica} · ${e.semAutor}`);
   return L.join('\n');
 }

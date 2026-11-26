@@ -23,7 +23,7 @@ export const DEFAULT_CONFIG = {
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 
-export const SETORES = ['Pessoal', 'Fiscal', 'Contábil', 'Financeiro'];
+export const SETORES = ['Pessoal', 'Fiscal', 'Contábil'];   // a aba Financeiro saiu (Josué, 26/11/2026); a pasta Financeiro do Onvio continua permitida e lida
 // Projetos onde a leitura desce até os arquivos (os outros entram só pelo nome, para a leitura ser mais rápida).
 export const DEPARTAMENTOS_LIDOS = ['Pessoal', 'Fiscal', 'Contabilidade', 'Contábil', 'Financeiro'];
 const PADRAO_ANTIGO = '^\\d{4}-\\d{2} - [A-Za-z0-9ÇÃÕÁÉÍÓÚ ]+ - .+\\.(pdf|xlsx?|xml|ofx|csv|zip)$';   // exemplo das primeiras versões

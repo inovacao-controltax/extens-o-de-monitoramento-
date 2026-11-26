@@ -3,7 +3,7 @@
 // e entrega dados parciais ao painel a cada poucos segundos (o painel cresce enquanto lê). Terminada a leitura completa, relê só as
 // empresas prioritárias a cada 10 min e a leitura completa a cada `horasAuto`. SÓ LEITURA (mesma lista fechada de rotas).
 // Para sozinha com acesso de cliente, se a sessão cair ou se o Onvio pedir calma. Uma trava impede duas abas lendo ao mesmo tempo.
-import { guardar, limitado, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
+import { guardar, limitado, idsDaEquipe, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
 import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
 import { loadSnapshot, saveSnapshot, saveSnapshotCompleto, duracaoDe as duracao } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
@@ -41,6 +41,8 @@ export function previsao(t0, feito, total, agora = Date.now()) {
   const min = Math.ceil(((agora - t0) / feito) * (total - feito) / 60000);
   return ` · faltam ~${min < 1 ? 1 : min} min`;
 }
+/** Lista de funcionários do escritório (para saber quem enviou cada arquivo); se não vier, a leitura segue com a dedução. */
+async function equipeSegura(f) { try { return await idsDaEquipe(f); } catch (e) { if (e instanceof AuthError) throw e; return null; } }
 let rodando = false;
 /** Leitura completa (ao vivo). */
 async function leituraCompleta(cfg, avisa) {
@@ -52,10 +54,11 @@ async function leituraCompleta(cfg, avisa) {
   try { await st().set({ [CHAVE_CLIENTES]: { em: Date.now(), clientes: compactos(clientes) } }); } catch (e) { /* cache é só para a releitura rápida */ }
   const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
   const prioridade = new Set((cfg.trained || []).flatMap(t => [t.cnpj, String(t.cnpj).slice(0, 8)]));   // treinadas e seus outros estabelecimentos (mesma raiz) primeiro
+  const equipeIds = await equipeSegura(f);
   const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, empresas: r.empresas || [], totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
   const t0 = Date.now();
   avisa({ estado: 'rodando', feito: 0, total: ativas, msg: `0 de ${ativas} empresas` });
-  const r = await coletar(f, clientes, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true, prioridade,
+  const r = await coletar(f, clientes, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true, prioridade, equipeIds,
     onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `${p.feito} de ${p.total} empresas${previsao(t0, p.feito, p.total)}` }); },
     onParcial: async p => { await saveSnapshot(montar(p, true)); } });
   const final = montar(r, !!r.qualidade.interrompida);
@@ -73,8 +76,9 @@ async function leituraRapida(cfg, snap, avisa) {
   const alvo = guardado.clientes.filter(c => raizes.has(String(c.cnpj || '').slice(0, 8)) && !c.inativo && c.ids.length);
   if (!alvo.length) return;
   const { f } = criarFetcher();
+  const equipeIds = await equipeSegura(f);
   avisa({ estado: 'rodando', feito: 0, total: alvo.length, msg: `Atualizando ${alvo.length} empresas treinadas…`, rapida: true });
-  const r = await coletar(f, alvo, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true,
+  const r = await coletar(f, alvo, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true, equipeIds,
     onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `Atualizando treinadas: ${p.feito} de ${p.total}`, rapida: true }); } });
   const atual = await loadSnapshot();
   const base = atual && atual.fonte === 'onvio' ? atual : snap;
