@@ -54,7 +54,8 @@ export function definirGrupos(grupos) {
 export const chaveDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); return g ? g.chave : raiz; };
 /** Todas as raízes que valem como a mesma empresa (a própria, se sozinha). */
 export const raizesDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); return g ? g.raizes : [raiz]; };
-export const nomeDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); return g ? g.nome : ''; };
+/** Nome para mostrar: "Grupo Atacapet" (para reconhecer de relance que é um grupo); não repete "Grupo" se o nome já começa assim. */
+export const nomeDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); if (!g) return ''; const n = g.nome || 'sem nome'; return /^grupo\b/i.test(n) ? n : 'Grupo ' + n; };
 /** Raízes a ler: as das treinadas e as dos outros membros do grupo de cada uma. */
 export const raizesParaLer = trained => new Set((trained || []).flatMap(t => raizesDoGrupo(normalizeCnpj(t.cnpj).slice(0, 8))));
 /** "Nome: cnpj, cnpj" por linha <-> [{ nome, cnpjs }] (CNPJ inválido ou grupo de uma empresa só é ignorado). */
