@@ -2,7 +2,7 @@
 // Formato dos dados brutos (o mesmo que as coletas reais das Fases 4 e 5 vão produzir):
 //   docs:  [{ empresa, cnpj, pasta: 'Fiscal/2026/11', arquivo, data: 'AAAA-MM-DD', origem: 'cliente'|'escritorio' }]
 //   users: [{ nome, setor, email, notificaTarefa: boolean, tarefasAtivas: number }]
-import { SETORES, compilePattern, normalizeCnpj } from './config.js';
+import { SETORES, compilePattern, normalizeCnpj, chaveDoGrupo, raizesDoGrupo } from './config.js';
 
 const DAY = 864e5;
 const norm = s => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
@@ -46,15 +46,19 @@ export function checkPastas(docs, cfg) {
  * dias === null significa "nunca enviou nada".
  */
 /** Raiz do CNPJ (8 primeiros dígitos): matriz e filiais são uma empresa só (regra do Hub). O Hub e o Onvio podem cadastrar estabelecimentos diferentes do mesmo grupo. */
-export const raizDoCnpj = c => { const n = normalizeCnpj(c); return n.length >= 8 ? n.slice(0, 8) : n; };
+const raizReal = c => { const n = normalizeCnpj(c); return n.length >= 8 ? n.slice(0, 8) : n; };
+/** Chave da empresa: a raiz do CNPJ, ou a raiz-chave do grupo quando a empresa faz parte de um grupo (Atacapet + RB + YB). */
+export const raizDoCnpj = c => chaveDoGrupo(raizReal(c));
 
 /**
  * Demanda da empresa segundo o Hub (que sabe, pelo Gestta, em quais setores ela tem tarefa): `mapa` = { raiz: ['Pessoal', ...] }.
  * comDemanda: true / false / null (o Hub não conhece a empresa ou ainda não se puxou a demanda: nunca se presume "sem demanda").
  */
 export function demandaDe(mapa, cnpj) {
-  const m = mapa && typeof mapa === 'object' ? mapa : null, l = m ? m[raizDoCnpj(cnpj)] : undefined;
-  if (!Array.isArray(l)) return { comDemanda: null, setoresDemanda: [] };
+  const m = mapa && typeof mapa === 'object' ? mapa : null;
+  const ls = m ? raizesDoGrupo(raizReal(cnpj)).map(r => m[r]).filter(Array.isArray) : [];      // o grupo todo: demanda em qualquer empresa dele vale
+  if (!ls.length) return { comDemanda: null, setoresDemanda: [] };
+  const l = [...new Set(ls.flat())];
   return { comDemanda: l.length > 0, setoresDemanda: l };
 }
 
@@ -69,7 +73,8 @@ export function statusEnvio(docs, trained, now = new Date(), solic = {}, demanda
   }
   // Solicitações de Serviço: qualquer ação do cliente (abrir, responder, lançar rubrica) mostra que ele usa o portal. { cnpj: 'AAAA-MM-DD' }
   for (const [cnpj, iso] of Object.entries(solic || {})) { const t = utcDay(iso); if (t !== null) marca(cnpj, t, 'solicitação'); }
-  return trained.map(t => {
+  const feitos = new Set();      // treinadas do mesmo grupo (Atacapet, RB, YB) são uma empresa só: a primeira vale
+  return trained.filter(t => { const k = raizDoCnpj(t.cnpj); if (feitos.has(k)) return false; feitos.add(k); return true; }).map(t => {
     const k = raizDoCnpj(t.cnpj), last = ultimo.get(k);
     const dias = last === undefined ? null : Math.floor((today(now) - last) / DAY);
     return { empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(k), ...demandaDe(demanda, t.cnpj) };

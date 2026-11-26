@@ -1,7 +1,7 @@
 import { discoverNames, discoverFolders } from '../src/discovery.js';
 import { trainedFromHub } from '../src/hub-sync.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from '../src/hub-treinados.js';
-import { DEFAULT_CONFIG, SETORES, loadConfig, saveConfig, validateConfig, testFileName, parseTrained, mergeTrained, formatCnpj } from '../src/config.js';
+import { DEFAULT_CONFIG, SETORES, loadConfig, saveConfig, validateConfig, testFileName, parseTrained, mergeTrained, formatCnpj, gruposDoTexto, gruposParaTexto } from '../src/config.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtDate = iso => iso ? new Date(iso + 'T00:00').toLocaleDateString('pt-BR') : '—';
@@ -49,6 +49,10 @@ export async function renderConfig(root, { toast, onSaved }) {
     <section class="card"><h2>Clientes sem envio</h2>
       <div class="field" id="f-dias"><label for="dias">Alertar após quantos dias sem envio</label>
         <input id="dias" class="num" type="number" min="1" max="365" inputmode="numeric"><span class="hint" id="h-dias">Vale para clientes já treinados e com demanda.</span></div></section>
+    <section class="card wide"><h2>Grupos de empresas</h2>
+      <p class="note-txt">Empresas com CNPJs diferentes que são atendidas como uma só (uma responde por todas) contam como <b>uma empresa</b>: o último uso, o treinamento, a demanda e os contatos do aviso valem para o grupo todo. Matriz e filiais (mesma raiz do CNPJ) já contam juntas sem precisar listar. Uma linha por grupo: <span class="num">Nome: CNPJ, CNPJ, CNPJ</span>.</p>
+      <div class="field"><label for="grupos">Grupos</label><textarea id="grupos" rows="4" class="num" spellcheck="false" placeholder="Atacapet: 25.096.492/0001-91, 66.675.807/0001-32, 66.702.493/0001-10"></textarea>
+        <span class="hint" id="h-grupos">Só entram linhas com pelo menos dois CNPJs de raízes diferentes.</span></div></section>
     <section class="card wide"><h2>Aviso ao cliente sem uso do portal</h2>
       <p class="note-txt">O botão <b>Avisar</b> da lista de sem envio prepara um rascunho no Zimbra com este texto. A extensão nunca envia: você confere e envia. Não peça documento assinado no texto.</p>
       <div class="field"><label for="msgaviso">Mensagem</label><textarea id="msgaviso" rows="8" class="num" spellcheck="true" placeholder="Deixe em branco para usar o texto padrão"></textarea>
@@ -97,10 +101,11 @@ export async function renderConfig(root, { toast, onSaved }) {
         `<tr><td><span class="emp">${esc(x.empresa)}</span>${x.parcial ? ' <span class="badge s-warn">Parcial</span>' : ''}</td><td class="num">${esc(formatCnpj(x.cnpj))}</td><td class="num col-sec">${fmtDate(x.treinadoEm)}</td><td>${x.demanda.map(s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`).join('') || '<span class="muted">—</span>'}</td><td class="r"><button class="btn btn-ghost btn-sm" data-del="${i}" type="button">Remover</button></td></tr>`).join('')}</tbody></table></div>`;
     $('#ttable').querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { draft.trained.splice(+b.dataset.del, 1); trained(); refreshDirty(); }));
   }
-  function fill() { $('#msgaviso').value = draft.msgAviso || ''; $('#msgassin').value = draft.msgAssinatura || ''; $('#zimbra').value = draft.zimbraUrl || ''; $('#pattern').value = draft.filePattern; $('#dias').value = draft.diasSemEnvio; chips(); trained(); test(); refreshDirty(); }
+  function fill() { $('#grupos').value = gruposParaTexto(draft.grupos); $('#msgaviso').value = draft.msgAviso || ''; $('#msgassin').value = draft.msgAssinatura || ''; $('#zimbra').value = draft.zimbraUrl || ''; $('#pattern').value = draft.filePattern; $('#dias').value = draft.diasSemEnvio; chips(); trained(); test(); refreshDirty(); }
 
   $('#pattern').addEventListener('input', e => { draft.filePattern = e.target.value; setErr('pattern', null); $('#f-pattern').classList.remove('has-error'); $('#h-pattern').textContent = 'Padrão da ControlTax: a competência MM-AAAA antes do nome, por exemplo 10-2026 Folha de pagamento.pdf. O que foge disso é apontado.'; test(); refreshDirty(); });
   $('#testname').addEventListener('input', test);
+  $('#grupos').addEventListener('input', e => { draft.grupos = gruposDoTexto(e.target.value); $('#h-grupos').textContent = `${draft.grupos.length} grupo(s) reconhecido(s). Só entram linhas com pelo menos dois CNPJs de raízes diferentes.`; refreshDirty(); });
   $('#msgaviso').addEventListener('input', e => { draft.msgAviso = e.target.value; refreshDirty(); });
   $('#msgassin').addEventListener('input', e => { draft.msgAssinatura = e.target.value; refreshDirty(); });
   $('#zimbra').addEventListener('input', e => { draft.zimbraUrl = e.target.value.trim(); refreshDirty(); });

@@ -1,6 +1,6 @@
 import { criarFetcher, abaOnvio, pausa } from '../src/onvio-tab.js';
 import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, diagnosticarNotificacoes, lerNotificacoesEscritorio, idsDaEquipe, diagnosticarAutoria, textoRelatorioAutoria, textoRelatorioNotificacoes, AuthError } from '../src/onvio-reader.js';
-import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS } from '../src/config.js';
+import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS, raizesParaLer } from '../src/config.js';
 import { loadSnapshot, saveSnapshot, clearSnapshot, loadSnapshotCompleto, duracaoDe } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
 import { abaGestta, criarLeitorGestta } from '../src/gestta-tab.js';
@@ -146,7 +146,7 @@ export async function renderColeta(root, { toast, onChanged }) {
       const guardado = (await chrome.storage.local.get('monitor-clientes'))['monitor-clientes'];
       const clientes = guardado && guardado.clientes && guardado.clientes.length ? guardado.clientes : (await listarClientes(f, { pausa })).clientes;
       const equipeIds = await idsDaEquipe(f).catch(e => { if (e instanceof AuthError) throw e; return null; });
-      const prioridade = new Set((cfgA.trained || []).flatMap(t => [t.cnpj, String(t.cnpj).slice(0, 8)]));
+      const prioridade = new Set([...(cfgA.trained || []).map(t => t.cnpj), ...raizesParaLer(cfgA.trained)]);
       const rep = await diagnosticarAutoria(f, clientes, { amostra: 12, prioridade, equipeIds, conhecidas: cfgA.allowedFolders, descer: DEPARTAMENTOS_LIDOS, pausa });
       $('#rel').textContent = textoRelatorioAutoria(rep); $('#copiar').disabled = false;
       toast(rep.vinculo ? 'Autoria exata: bate com a lista de funcionários' : 'Autoria por dedução: veja o relatório', rep.vinculo ? 'ok' : 'warn');

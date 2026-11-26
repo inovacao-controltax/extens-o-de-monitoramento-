@@ -59,3 +59,28 @@ test('config antiga com a lista de pastas da 1ª versão é atualizada (evita al
   await saveConfig({ ...DEFAULT_CONFIG, allowedFolders: ['Minha Pasta'] });                       // lista que a pessoa escolheu: respeitada
   assert.deepEqual((await loadConfig()).allowedFolders, ['Minha Pasta']);
 });
+
+import { definirGrupos, chaveDoGrupo, raizesDoGrupo, raizesParaLer, gruposDoTexto, gruposParaTexto } from '../src/config.js';
+import { statusEnvio, demandaDe, checkSemEnvio } from '../src/rules.js';
+test('grupos de empresas: raízes diferentes valem como uma empresa', () => {
+  definirGrupos([{ nome: 'Atacapet', cnpjs: ['25096492000191', '66675807000132', '66702493000110'] }]);
+  assert.equal(chaveDoGrupo('66675807'), '25096492');
+  assert.deepEqual(raizesDoGrupo('66702493'), ['25096492', '66675807', '66702493']);
+  assert.equal(chaveDoGrupo('11222333'), '11222333');
+  assert.deepEqual([...raizesParaLer([{ cnpj: '25096492000191' }])].sort(), ['25096492', '66675807', '66702493']);
+  const t = [{ empresa: 'Atacapet', cnpj: '25096492000191', treinadoEm: '2026-01-01', demanda: ['Pessoal'] }];
+  const now = new Date('2026-11-26T12:00:00Z');
+  // a RB (outra raiz) enviou há 5 dias: a Atacapet inteira está em uso
+  const r = statusEnvio([{ cnpj: '66675807000132', origem: 'cliente', data: '2026-11-21' }], t, now, {});
+  assert.equal(r[0].dias, 5);
+  // demanda só na YB vale para o grupo
+  assert.equal(demandaDe({ '25096492': [], '66702493': ['Fiscal'] }, '25096492000191').comDemanda, true);
+  assert.equal(checkSemEnvio([], t, { diasSemEnvio: 90 }, now, {}, { '25096492': [], '66675807': [], '66702493': [] }).length, 0);
+  definirGrupos([]);
+  assert.equal(chaveDoGrupo('66675807'), '66675807');
+});
+test('grupos de empresas: texto <-> lista', () => {
+  const g = gruposDoTexto('Atacapet: 25.096.492/0001-91, 66.675.807/0001-32\nsó um: 11.222.333/0001-81\nmesma raiz: 11.222.333/0001-81, 11.222.333/0002-62\nsem dois pontos');
+  assert.equal(g.length, 1); assert.equal(g[0].nome, 'Atacapet'); assert.equal(g[0].cnpjs.length, 2);
+  assert.match(gruposParaTexto(g), /^Atacapet: 25\.096\.492\/0001-91, 66\.675\.807\/0001-32$/);
+});

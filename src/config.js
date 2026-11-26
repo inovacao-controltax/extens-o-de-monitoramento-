@@ -20,6 +20,9 @@ export const DEFAULT_CONFIG = {
   msgAssinatura: 'Equipe ControlTax',
   zimbraUrl: 'https://mail.controltax.com.br/',   // onde abre o rascunho (a extensão nunca envia)
   avisados: {},        // { cnpj: 'AAAA-MM-DD' }: dia em que o rascunho do aviso foi aberto
+  // Grupos de empresas (Josué, 26/11/2026: a Atacapet, a RB e a YB são uma só; quem responde pelo grupo é uma empresa): CNPJs de raízes diferentes que contam como
+  // UMA empresa no monitor (último uso, treinadas, demanda, leitura). Matriz e filiais (mesma raiz) já contam juntas sem precisar listar.
+  grupos: [{ nome: 'Atacapet', cnpjs: ['25096492000191', '66675807000132', '66702493000110'] }],
   trained: [], // [{ empresa, cnpj (14 dígitos), treinadoEm 'AAAA-MM-DD'|'', demanda: ['Pessoal', ...] }]
 };
 
@@ -33,6 +36,38 @@ const KEY = 'monitor-config';
 // ---------- CNPJ ----------
 // Aceita o CNPJ numérico e o alfanumérico (12 primeiras posições com letras A-Z, 2 dígitos verificadores).
 export const normalizeCnpj = s => String(s ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+
+// ---------- Grupos de empresas: raízes de CNPJ diferentes que valem como uma empresa só ----------
+let GRUPO_DE = new Map();   // raiz (8) -> { chave: primeira raiz do grupo, nome, raizes: [...] }
+/** Liga os grupos da configuração. Chamado por loadConfig; fica na memória da página/service worker. */
+export function definirGrupos(grupos) {
+  const m = new Map();
+  for (const g of Array.isArray(grupos) ? grupos : []) {
+    const raizes = [...new Set((g && Array.isArray(g.cnpjs) ? g.cnpjs : []).map(c => normalizeCnpj(c).slice(0, 8)).filter(r => r.length === 8))];
+    if (raizes.length < 2) continue;
+    const info = { chave: raizes[0], nome: String(g.nome || '').trim(), raizes };
+    for (const r of raizes) if (!m.has(r)) m.set(r, info);
+  }
+  GRUPO_DE = m;
+}
+/** Raiz que representa o grupo da empresa (a própria raiz quando não está em nenhum grupo). */
+export const chaveDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); return g ? g.chave : raiz; };
+/** Todas as raízes que valem como a mesma empresa (a própria, se sozinha). */
+export const raizesDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); return g ? g.raizes : [raiz]; };
+export const nomeDoGrupo = raiz => { const g = GRUPO_DE.get(raiz); return g ? g.nome : ''; };
+/** Raízes a ler: as das treinadas e as dos outros membros do grupo de cada uma. */
+export const raizesParaLer = trained => new Set((trained || []).flatMap(t => raizesDoGrupo(normalizeCnpj(t.cnpj).slice(0, 8))));
+/** "Nome: cnpj, cnpj" por linha <-> [{ nome, cnpjs }] (CNPJ inválido ou grupo de uma empresa só é ignorado). */
+export function gruposDoTexto(txt) {
+  const out = [];
+  for (const l of String(txt || '').split(/\n/)) {
+    const i = l.indexOf(':'); if (i < 0) continue;
+    const cnpjs = l.slice(i + 1).split(/[;,\s]+/).map(normalizeCnpj).filter(c => c.length === 14);
+    if (new Set(cnpjs.map(c => c.slice(0, 8))).size >= 2) out.push({ nome: l.slice(0, i).trim().slice(0, 80), cnpjs });
+  }
+  return out;
+}
+export const gruposParaTexto = grupos => (grupos || []).map(g => `${g.nome}: ${(g.cnpjs || []).map(c => String(c).replace(/^(\w{2})(\w{3})(\w{3})(\w{4})(\w{2})$/, '$1.$2.$3/$4-$5')).join(', ')}`).join('\n');
 export const onlyDigits = normalizeCnpj; // nome antigo, mantido por compatibilidade
 export function isValidCnpj(v) {
   const d = normalizeCnpj(v);
@@ -117,7 +152,9 @@ export async function loadConfig() {
   if (saved && saved.filePattern === PADRAO_ANTIGO) saved.filePattern = DEFAULT_CONFIG.filePattern;   // troca o exemplo antigo pelo padrão oficial
   if (saved && Array.isArray(saved.allowedFolders) && JSON.stringify(saved.allowedFolders) === JSON.stringify(LISTA_ANTIGA)) saved.allowedFolders = structuredClone(DEFAULT_CONFIG.allowedFolders);
   if (saved && saved.diasSemEnvio === 30) saved.diasSemEnvio = DEFAULT_CONFIG.diasSemEnvio;   // 30 era o padrão antigo; quem quiser outro valor escolhe
-  return { ...structuredClone(DEFAULT_CONFIG), ...(saved || {}) };
+  const cfg = { ...structuredClone(DEFAULT_CONFIG), ...(saved || {}) };
+  definirGrupos(cfg.grupos);
+  return cfg;
 }
 export async function saveConfig(cfg) {
   const errors = validateConfig(cfg);

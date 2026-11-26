@@ -1,5 +1,5 @@
 import { SAMPLE } from '../src/mock.js';
-import { loadConfig, saveConfig, formatCnpj } from '../src/config.js';
+import { loadConfig, saveConfig, formatCnpj, nomeDoGrupo } from '../src/config.js';
 import { puxarTreinados, contatosDoHub, CHAVE_DEMANDA } from '../src/hub-treinados.js';
 import { montarAviso, linkZimbra, destinatarios } from '../src/aviso.js';
 import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj, demandaDe } from '../src/rules.js';
@@ -182,8 +182,15 @@ function ultimosEnvios() {
   }
   const tem = new Set([...ult.keys()].map(raizDoCnpj));
   for (const t of cfg.trained || []) if (!tem.has(raizDoCnpj(t.cnpj))) ult.set(t.cnpj, { empresa: t.empresa, cnpj: t.cnpj, data: '', fonte: '', detalhe: '' });
+  // Uma linha por empresa: matriz e filiais (mesma raiz) e os grupos configurados (Atacapet + RB + YB) viram uma linha só, com o uso mais recente de qualquer membro
+  const porChave = new Map(), lista = [];
+  for (const x of ult.values()) {
+    const k = raizDoCnpj(x.cnpj), a = porChave.get(k);
+    if (!a) { const y = { ...x, empresa: nomeDoGrupo(k) || x.empresa }; porChave.set(k, y); lista.push(y); continue; }
+    if (x.data && (!a.data || x.data > a.data)) { a.data = x.data; a.fonte = x.fonte; a.detalhe = x.detalhe; }
+  }
   const hoje = Date.now();
-  return [...ult.values()].map(x => ({ ...x, treinada: raizes.has(raizDoCnpj(x.cnpj)), ...demandaDe(demandaHub && demandaHub.mapa, x.cnpj), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
+  return lista.map(x => ({ ...x, treinada: raizes.has(raizDoCnpj(x.cnpj)), ...demandaDe(demandaHub && demandaHub.mapa, x.cnpj), dias: x.data ? Math.max(0, Math.floor((hoje - Date.parse(x.data + 'T00:00:00Z')) / 864e5)) : null }));
 }
 function enviosHtml() {
   if (lendoSemDados() || !real()) return '<div class="empty"><b>Nada lido ainda.</b><p>Os últimos envios aparecem assim que as primeiras empresas forem lidas.</p></div>';
