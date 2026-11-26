@@ -6,7 +6,10 @@ import { montarAviso, linkZimbra, destinatarios } from '../src/aviso.js';
 import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj, demandaDe } from '../src/rules.js';
 import { renderConfig } from './config-view.js';
 import { renderColeta } from './coleta-view.js';
-import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel } from '../src/snapshot.js';
+import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel, saveSnapshot, saveSnapshotCompleto } from '../src/snapshot.js';
+import { criarFetcher, criarEscritor } from '../src/onvio-tab.js';
+import { corrigirNomes, desfazerNomes, MOTIVOS_FALHA } from '../src/corrigir-escrita.js';
+import { confirmModal } from './config-view.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
 const $ = id => document.getElementById(id);
@@ -68,6 +71,8 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
+let correcoes = { rodadas: [] };      // registro das correções feitas no Onvio (nome antigo e novo), para desfazer: monitor-correcoes
+let corrigindo = null;               // { parar } enquanto uma rodada está andando
 let pastasModelo = null;     // { em, codigo, empresa, nomes }: as pastas da empresa modelo (9999), que são o padrão
 let demandaHub = null;      // { em, mapa: { raiz: [setores com demanda] } } puxado do Hub (Hub 436)
 let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, hist = null, snapCompleto = null, snapEst = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
@@ -243,6 +248,49 @@ function padraoPastasHtml() {
   return `<p class="note-txt" style="margin:10px 16px 14px">${m ? `Padrão = as pastas da empresa ${esc(m.empresa)} (${esc(m.codigo)}): ${esc(m.nomes.join(', '))}.` : `Padrão = a lista de pastas permitidas das Configurações (a empresa modelo ainda não foi lida): ${esc((cfg.allowedFolders || []).join(', '))}.`}</p>`;
 }
 // Correção de nomes (parte 1: só PROPÕE; escrever no Onvio vem depois de mapear a chamada de renomear). Só entra a proposta com competência CERTA.
+const MAX_RODADA = 200;
+const primeiraCorrecao = () => !correcoes.rodadas.some(r => r.feitos.length);
+const ultimaRodada = () => { const l = correcoes.rodadas.filter(r => r.feitos.length && !r.desfeita); return l.length ? l[l.length - 1] : null; };
+async function guardarCorrecoes() { try { correcoes.rodadas = correcoes.rodadas.slice(-20); await chrome.storage.local.set({ 'monitor-correcoes': correcoes }); } catch (e) { /* o registro é só para desfazer */ } }
+// troca o nome na última leitura guardada (sem reler o Onvio): é só o que o monitor mostra até a próxima coleta
+async function aplicarNomesNaLeitura(trocas) {
+  const mapa = new Map(trocas.map(t => [t.docId, t.novo]));
+  for (const [ler, salvar] of [[loadSnapshot, saveSnapshot], [loadSnapshotCompleto, saveSnapshotCompleto]]) {
+    const s = await ler(); if (!s || !Array.isArray(s.docs)) continue;
+    let mudou = false; s.docs.forEach(d => { if (d.docId && mapa.has(d.docId)) { d.arquivo = mapa.get(d.docId); mudou = true; } });
+    if (mudou) await salvar(s);
+  }
+}
+async function corrigirNomesAgora(botao) {
+  if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
+  const { re } = compilePattern(cfg.filePattern); if (!re || !real()) return;
+  const { prontas } = planoDeCorrecao(data('nomenclatura'), re, source().docs || []);
+  if (!prontas.length) return toast('Nenhum arquivo com proposta segura agora.', 'warn');
+  const primeira = primeiraCorrecao(), itens = (primeira ? prontas.slice(0, 1) : prontas.slice(0, MAX_RODADA));
+  const amostra = itens.slice(0, 8).map(i => `${i.arquivo}  →  ${i.novo}`).join('\n');
+  const okc = await confirmModal({ title: `Renomear ${itens.length} arquivo${itens.length === 1 ? '' : 's'} no Onvio?`, ok: 'Renomear', text: `${amostra}${itens.length > 8 ? `\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só este arquivo, para você conferir no Onvio antes de continuar.' : 'Um por vez, conferindo cada um antes. Nada é excluído nem movido.'} Dá para desfazer.` });
+  if (!okc) return;
+  let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
+  corrigindo = { parar: false }; render(false);
+  const r = await corrigirNomes(itens, { ler, escrever, padrao: re, parar: () => corrigindo && corrigindo.parar, onProgresso: p => toast(`Renomeando… ${p.ok} de ${p.total}`) });
+  corrigindo = null;
+  if (r.feitos.length) { correcoes.rodadas.push({ em: new Date().toISOString(), feitos: r.feitos, falhas: r.falhas.length, parou: r.parou }); await guardarCorrecoes(); await aplicarNomesNaLeitura(r.feitos.map(f => ({ docId: f.docId, novo: f.para }))); }
+  const motivo = r.falhas.length ? ` ${r.falhas.length} não alterado${r.falhas.length === 1 ? '' : 's'}: ${MOTIVOS_FALHA[r.falhas[0].motivo] || r.falhas[0].motivo}.` : '';
+  toast(`${r.feitos.length} arquivo${r.feitos.length === 1 ? '' : 's'} renomeado${r.feitos.length === 1 ? '' : 's'}.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ' Confira no Onvio e clique de novo para corrigir os demais.' : ''}`, r.feitos.length ? 'ok' : 'warn');
+  recompute(); render(false);
+}
+async function desfazerNomesAgora() {
+  const rod = ultimaRodada(); if (!rod) return;
+  const okc = await confirmModal({ title: `Desfazer ${rod.feitos.length} renomeação${rod.feitos.length === 1 ? '' : 'ões'}?`, ok: 'Desfazer', text: 'Cada arquivo volta ao nome antigo, só se ainda tiver o nome novo no Onvio.' });
+  if (!okc) return;
+  let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
+  corrigindo = { parar: false }; render(false);
+  const r = await desfazerNomes(rod.feitos, { ler, escrever, parar: () => corrigindo && corrigindo.parar });
+  corrigindo = null; rod.desfeita = true; await guardarCorrecoes();
+  if (r.feitos.length) await aplicarNomesNaLeitura(r.feitos.map(f => ({ docId: f.docId, novo: f.para })));
+  toast(`${r.feitos.length} arquivo${r.feitos.length === 1 ? '' : 's'} de volta ao nome antigo.${r.falhas.length ? ` ${r.falhas.length} já não tinham o nome novo.` : ''}`, r.feitos.length ? 'ok' : 'warn');
+  recompute(); render(false);
+}
 function correcaoNomesHtml() {
   const linhas = data('nomenclatura'); if (!linhas.length || !real()) return '';
   const { re } = compilePattern(cfg.filePattern); if (!re) return '';
@@ -253,7 +301,8 @@ function correcaoNomesHtml() {
   return `<div class="blk-b" style="border-top:1px solid var(--border,#e5e7eb)"><h3 class="sub-h">Correção dos nomes <span class="count">${prontas.length}</span></h3>
     <p class="note-txt" style="margin:4px 0 8px"><b>${prontas.length}</b> ${prontas.length === 1 ? 'arquivo tem' : 'arquivos têm'} proposta com a competência certa (do nome ou da pasta). <b>${pendentes.length}</b> precisam da sua decisão: ${pend || 'nenhum'}. A extensão nunca chuta a competência.</p>
     ${prontas.length ? `<details><summary class="btn btn-sm">Ver as propostas (${Math.min(40, prontas.length)} de ${prontas.length})</summary><div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th class="col-sec">Pasta</th><th>Nome atual</th><th>Nome proposto</th></tr></thead><tbody>${prev}</tbody></table></div></details>` : ''}
-    <p class="note-txt" style="margin:8px 0 0">Corrigir no Onvio ainda <b>não está ligado</b>: falta mapear a chamada que a tela do Onvio usa para renomear um arquivo. Veja o roteiro em Coleta do Onvio › Aprender chamadas.</p></div>`;
+    <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${prontas.length ? `<button type="button" class="btn btn-primary" data-corrigir-nomes>${corrigindo ? 'Parar a correção' : (primeiraCorrecao() ? 'Corrigir 1 arquivo (teste)' : `Corrigir ${Math.min(prontas.length, MAX_RODADA)} arquivo${prontas.length === 1 ? '' : 's'}`)}</button>` : ''}${ultimaRodada() && !corrigindo ? `<button type="button" class="btn" data-desfazer-nomes>Desfazer a última rodada (${ultimaRodada().feitos.length})</button>` : ''}</div>
+    <p class="note-txt" style="margin:8px 0 0">Cada arquivo é conferido no Onvio antes e renomeado <b>um por vez</b>; nada é excluído nem movido. ${primeiraCorrecao() ? 'A primeira vez corrige <b>só 1 arquivo</b>, para você conferir no Onvio antes de continuar.' : ''}${correcoes.rodadas.length ? ` Já corrigidos: ${correcoes.rodadas.reduce((s, r) => s + r.feitos.length, 0)}.` : ''}</p></div>`;
 }
 function resumoDiaHtml() {
   const r = resumoDoDia(hist, new Date());
@@ -328,6 +377,8 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-classe]').forEach(e => e.addEventListener('click', () => { state.envClasse = e.dataset.envClasse; render(false); }));
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
+  v.querySelectorAll('[data-corrigir-nomes]').forEach(e => e.addEventListener('click', () => corrigirNomesAgora(e)));
+  v.querySelectorAll('[data-desfazer-nomes]').forEach(e => e.addEventListener('click', desfazerNomesAgora));
   v.querySelectorAll('[data-avisar]').forEach(e => e.addEventListener('click', () => abrirAviso(e.dataset.avisar)));
   v.querySelectorAll('[data-sil]').forEach(e => e.addEventListener('click', () => abrirSilenciar(e.dataset.sil)));
   v.querySelectorAll('[data-sil-ver]').forEach(e => e.addEventListener('click', abrirSilenciadas));
@@ -486,6 +537,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', CHAVE_HIST]).then(r => { demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', CHAVE_HIST]).then(r => { correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
