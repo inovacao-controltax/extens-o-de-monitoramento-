@@ -91,3 +91,6 @@ O bloco **Correção dos nomes** (e o botão Corrigir) passou para o **topo** de
 
 ## Confirmação com empresa e pasta (0.24.2)
 A janela de confirmação da correção de nomes (e a do desfazer) agora mostra, para cada arquivo, a **empresa, o CNPJ e a pasta** além de "nome atual → nome novo", e depois do teste de 1 arquivo a mensagem diz em que empresa e pasta conferir no Onvio. Mensagens longas ficam mais tempo na tela. (Feedback do Josué: "como vou conferir sem saber de que empresa é esse arquivo".)
+
+## Correção de nomes validada no Onvio real (26/11/2026)
+O Josué testou o botão Corrigir no Onvio real: a renomeação de 1 arquivo saiu **correta**. A parte 1 (propor) e a parte 2 (renomear, confirmar, um por vez, desfazer) estão validadas. Próximas automações, uma de cada vez: **pastas fora do padrão** e **notificações desligadas**, ambas dependem de mapear a chamada de escrita (`docs/mapear-pastas-e-notificacoes.md`).
