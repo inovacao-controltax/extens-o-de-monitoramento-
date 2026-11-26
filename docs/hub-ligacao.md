@@ -70,3 +70,6 @@ Na conferência, estabelecimentos com o mesmo nome (matriz e filiais) agora são
 
 ## Grupos de empresas (0.20.0)
 Empresas de raízes de CNPJ diferentes que são atendidas como uma só (uma responde por todas, como a **Atacapet, a RB e a YB**) agora contam como **uma empresa** no monitor: o último uso é o mais recente de qualquer membro, a demanda vale se algum membro tem em algum setor, a leitura traz todos os membros primeiro, o aviso usa os contatos do grupo inteiro (Para e Cópia) e Últimos envios mostra uma linha só com o nome do grupo. Matriz e filiais (mesma raiz) já eram uma empresa só. **Configurações › Grupos de empresas:** uma linha por grupo, `Nome: CNPJ, CNPJ, CNPJ` (só vale com pelo menos duas raízes diferentes). De fábrica vem o grupo Atacapet (25.096.492, 66.675.807 e 66.702.493), tirado do cadastro do Hub. O Hub ainda não tem o conceito de grupo entre raízes diferentes; a lista fica na extensão. Treinadas do mesmo grupo valem como uma só.
+
+## Nome "Grupo X" (0.20.1)
+Em Últimos envios a linha de um grupo de empresas aparece como **Grupo Atacapet** (o "Grupo" é acrescentado se o nome cadastrado ainda não começa assim), para reconhecer de relance que é um grupo e não uma empresa.

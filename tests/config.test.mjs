@@ -84,3 +84,12 @@ test('grupos de empresas: texto <-> lista', () => {
   assert.equal(g.length, 1); assert.equal(g[0].nome, 'Atacapet'); assert.equal(g[0].cnpjs.length, 2);
   assert.match(gruposParaTexto(g), /^Atacapet: 25\.096\.492\/0001-91, 66\.675\.807\/0001-32$/);
 });
+
+import { nomeDoGrupo } from '../src/config.js';
+test('grupos de empresas: o nome mostrado é "Grupo X"', () => {
+  definirGrupos([{ nome: 'Atacapet', cnpjs: ['25096492000191', '66675807000132'] }, { nome: 'Grupo Alfa', cnpjs: ['11222333000181', '44555666000100'] }]);
+  assert.equal(nomeDoGrupo('66675807'), 'Grupo Atacapet');
+  assert.equal(nomeDoGrupo('44555666'), 'Grupo Alfa');
+  assert.equal(nomeDoGrupo('99999999'), '');
+  definirGrupos([]);
+});
