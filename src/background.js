@@ -80,3 +80,21 @@ chrome.runtime.onMessage.addListener((msg, sender, responder) => {
   })();
   return true;
 });
+
+// Demanda por setor das empresas (Hub 436): só a pedido de uma página da própria extensão; o Hub só responde com o código de pareamento.
+chrome.runtime.onMessage.addListener((msg, sender, responder) => {
+  if (!msg || msg.tipo !== 'puxar-demanda') return;
+  (async () => {
+    try {
+      if (sender.id !== chrome.runtime.id) return responder({ ok: false, motivo: 'recusado' });
+      const abas = await chrome.tabs.query({ url: 'https://claude.ai/*' });
+      if (!abas.length) return responder({ ok: false, motivo: 'sem-hub' });
+      let ultimo = { ok: false, motivo: 'sem-ponte' };
+      for (const a of abas) {
+        try { const r = await chrome.tabs.sendMessage(a.id, { tipo: 'hub-demanda' }); if (r && r.ok) return responder(r); if (r) ultimo = r; } catch (e) { /* aba sem a ponte: recarregar (F5) */ }
+      }
+      responder(ultimo);
+    } catch (e) { responder({ ok: false, motivo: 'erro', mensagem: String(e && e.message || e).slice(0, 160) }); }
+  })();
+  return true;
+});

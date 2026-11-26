@@ -48,8 +48,18 @@ export function checkPastas(docs, cfg) {
 /** Raiz do CNPJ (8 primeiros dígitos): matriz e filiais são uma empresa só (regra do Hub). O Hub e o Onvio podem cadastrar estabelecimentos diferentes do mesmo grupo. */
 export const raizDoCnpj = c => { const n = normalizeCnpj(c); return n.length >= 8 ? n.slice(0, 8) : n; };
 
+/**
+ * Demanda da empresa segundo o Hub (que sabe, pelo Gestta, em quais setores ela tem tarefa): `mapa` = { raiz: ['Pessoal', ...] }.
+ * comDemanda: true / false / null (o Hub não conhece a empresa ou ainda não se puxou a demanda: nunca se presume "sem demanda").
+ */
+export function demandaDe(mapa, cnpj) {
+  const m = mapa && typeof mapa === 'object' ? mapa : null, l = m ? m[raizDoCnpj(cnpj)] : undefined;
+  if (!Array.isArray(l)) return { comDemanda: null, setoresDemanda: [] };
+  return { comDemanda: l.length > 0, setoresDemanda: l };
+}
+
 /** Situação de TODAS as treinadas: dias desde a última atividade do cliente (arquivo ou Solicitação), de onde veio, ou null se não há registro. */
-export function statusEnvio(docs, trained, now = new Date(), solic = {}) {
+export function statusEnvio(docs, trained, now = new Date(), solic = {}, demanda = null) {
   const ultimo = new Map(), fonte = new Map();
   const marca = (cnpj, t, f) => { const k = raizDoCnpj(cnpj); if (!ultimo.has(k) || t > ultimo.get(k)) { ultimo.set(k, t); fonte.set(k, f); } };
   for (const d of docs) {
@@ -62,13 +72,14 @@ export function statusEnvio(docs, trained, now = new Date(), solic = {}) {
   return trained.map(t => {
     const k = raizDoCnpj(t.cnpj), last = ultimo.get(k);
     const dias = last === undefined ? null : Math.floor((today(now) - last) / DAY);
-    return { empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(k) };
+    return { empresa: t.empresa, cnpj: t.cnpj, treinadoEm: t.treinadoEm, demanda: t.demanda || [], dias, fonte: dias === null ? '' : fonte.get(k), ...demandaDe(demanda, t.cnpj) };
   });
 }
 
-export function checkSemEnvio(docs, trained, cfg, now = new Date(), solic = {}) {
+export function checkSemEnvio(docs, trained, cfg, now = new Date(), solic = {}, demanda = null) {
   const out = [];
-  for (const r of statusEnvio(docs, trained, now, solic)) {
+  for (const r of statusEnvio(docs, trained, now, solic, demanda)) {
+    if (r.comDemanda === false) continue;      // sem demanda em nenhum setor (segundo o Hub): não há o que enviar, não é alerta
     const ref = r.dias !== null ? r.dias : (r.treinadoEm ? daysSince(r.treinadoEm, now) : null);
     if (ref === null || ref > cfg.diasSemEnvio) out.push(r);
   }
@@ -105,7 +116,7 @@ export function analyze(snapshot, cfg, now = new Date()) {
   return {
     nomenclatura: checkNomenclatura(docs, cfg),
     pastas: checkPastas(docs, cfg),
-    semEnvio: checkSemEnvio(docs, trained, cfg, now, snapshot.solic).filter(r => !(cfg.silenciadas || []).some(x => x.cnpj === r.cnpj && silenciadaAgora(x, now))),
+    semEnvio: checkSemEnvio(docs, trained, cfg, now, snapshot.solic, snapshot.demanda).filter(r => !(cfg.silenciadas || []).some(x => x.cnpj === r.cnpj && silenciadaAgora(x, now))),
     notificacoes: snapshot.notif ? checkNotificacoesOnvio(snapshot.notif, cfg) : checkNotificacoes(snapshot.users || []),
   };
 }

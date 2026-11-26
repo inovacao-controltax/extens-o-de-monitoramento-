@@ -77,11 +77,11 @@ const trained = [{ empresa: 'Alfa', cnpj: '1', treinadoEm: '2026-08-01', demanda
 const agora = new Date('2026-11-25T12:00:00Z');
 test('sem envio: vale o mais recente entre arquivo e solicitação; mostra de onde veio', () => {
   const docs = [{ cnpj: '1', origem: 'cliente', data: '2026-09-01' }];
-  const r = checkSemEnvio(docs, trained, DEFAULT_CONFIG, agora, { 1: '2026-11-20' });
+  const r = checkSemEnvio(docs, trained, { ...DEFAULT_CONFIG, diasSemEnvio: 30 }, agora, { 1: '2026-11-20' });
   assert.deepEqual(r.map(x => x.cnpj), ['2']);                // Alfa usou o portal por solicitação há 5 dias
-  const r2 = checkSemEnvio(docs, trained, DEFAULT_CONFIG, agora, {});
+  const r2 = checkSemEnvio(docs, trained, { ...DEFAULT_CONFIG, diasSemEnvio: 30 }, agora, {});
   assert.deepEqual(r2.map(x => [x.cnpj, x.dias, x.fonte]), [['2', null, ''], ['1', 85, 'arquivo']]);
-  const r3 = checkSemEnvio([], trained, DEFAULT_CONFIG, agora, { 2: '2026-09-30' });
+  const r3 = checkSemEnvio([], trained, { ...DEFAULT_CONFIG, diasSemEnvio: 30 }, agora, { 2: '2026-09-30' });
   assert.deepEqual(r3.map(x => [x.cnpj, x.dias, x.fonte]), [['1', null, ''], ['2', 56, 'solicitação']]);
 });
 test('silenciar: com data vale até ela; sem data vale sempre; vencida volta a aparecer', () => {
