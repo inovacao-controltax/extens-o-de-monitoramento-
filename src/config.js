@@ -7,6 +7,7 @@ export const DEFAULT_CONFIG = {
   filePattern: '^(0[1-9]|1[0-2])-20\\d{2} \\S.*$',
   // Os 8 projetos (departamentos) que o Onvio cria em toda empresa, mais Contábil e Comunicados como variações comuns.
   allowedFolders: ['Administrativo', 'Certidão Negativa de Débito', 'Contabilidade', 'Contábil', 'Financeiro', 'Fiscal', 'Patrimônio', 'Pessoal', 'Registro de Empresas', 'Comunicados'],
+  pastasLixeiraComConteudo: ['zlkx-c'],   // nomes de pasta fora do padrão que podem ir para a lixeira do Onvio mesmo com conteúdo (a zlkx-c é do Josué); os demais, só vazios
   empresaModelo: '9999',   // código no Onvio da empresa com o padrão correto de pastas (EMPRESA EXEMPLO SIMPLES NACIONAL LTDA): as pastas dela são o padrão
   diasSemEnvio: 90,   // Josué, 26/11/2026: o alerta padrão é de 90 dias (era 30)
   autoLer: true,      // ler o Onvio sozinho, em segundo plano, quando os dados têm mais de horasAuto

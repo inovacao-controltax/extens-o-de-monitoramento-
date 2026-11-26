@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pedidoLixeira, lixeiraPermitida, leituraDeProjeto, urlProjeto, gruposExcluiveis, enviarPastasParaLixeira } from '../src/excluir-pastas.js';
+import { pedidoLixeira, lixeiraPermitida, leituraDeProjeto, urlProjeto, gruposExcluiveis, enviarPastasParaLixeira, liberadoComConteudo } from '../src/excluir-pastas.js';
 import { leituraPermitida } from '../src/onvio-reader.js';
 
 function onvio({ status = 201, recusa = {} } = {}) {
@@ -69,4 +69,19 @@ test('para na primeira recusa de permissão, depois de 3 erros e a pedido', asyn
   const o3 = onvio(); ['x', 'y'].forEach(i => o3.add(i, 'zlkx-c')); let n = 0;
   const r3 = await enviarPastasParaLixeira(['x', 'y'].map(i => it(i)), { ler: o3.ler, escrever: o3.escrever, pausaMs: 0, parar: () => n++ >= 1 });
   assert.equal(r3.parou, 'pedido'); assert.equal(r3.feitos.length, 1);
+});
+
+test('com conteúdo: só com a liberação explícita do nome (zlkx-c) e se o Onvio disser com clareza', async () => {
+  assert.equal(liberadoComConteudo('zlkx-c', ['zlkx-c']), true); assert.equal(liberadoComConteudo('ZLKX-C', ['zlkx-c']), true);
+  assert.equal(liberadoComConteudo('Victor Nascimento', ['zlkx-c']), false);
+  const g = gruposExcluiveis([{ pasta: 'zlkx-c', pastaTipo: 'Projects', pastaId: 'a', vazia: false, podeExcluir: true, empresa: 'A', cnpj: '1' }, { pasta: 'zlkx-c', pastaTipo: 'Projects', pastaId: 'b', vazia: false, podeExcluir: false, empresa: 'B', cnpj: '2' }]);
+  assert.deepEqual(g[0].itensComConteudo.map(i => i.pastaId), ['a']); assert.equal(g[0].comConteudo, 2); assert.equal(g[0].itens.length, 0);
+  const o = onvio(); o.add('p1', 'zlkx-c', { vazia: false });
+  const sem = await enviarPastasParaLixeira([it('p1')], { ler: o.ler, escrever: o.escrever, pausaMs: 0 });
+  assert.equal(sem.falhas[0].motivo, 'com-conteudo'); assert.equal(o.posts.length, 0);                     // sem liberação, nada
+  const com = await enviarPastasParaLixeira([it('p1')], { ler: o.ler, escrever: o.escrever, pausaMs: 0, incluirConteudo: true });
+  assert.deepEqual(com.feitos.map(f => f.pastaId), ['p1']); assert.equal(o.posts.length, 1);
+  const ler = async () => ({ data: { name: 'zlkx-c', permissions: { delete: true } } });                      // o Onvio não disse: nem com liberação
+  const nd = await enviarPastasParaLixeira([it('p2')], { ler, escrever: async () => ({ status: 201 }), pausaMs: 0, incluirConteudo: true });
+  assert.equal(nd.falhas[0].motivo, 'com-conteudo');
 });

@@ -8,6 +8,9 @@ const ID = '[0-9a-zA-Z-]{1,64}';
 const ROTA_LIXEIRA = 'storage/v1/trash/projects';
 const ROTA_PROJETO = new RegExp(`^storage/v1/projects/(${ID})$`);
 
+/** Nomes de pasta que o Josué liberou para ir à lixeira MESMO com conteúdo (26/11/2026: a zlkx-c é dele). Qualquer outro nome só vai se estiver vazio. */
+export const NOMES_COM_CONTEUDO = ['zlkx-c'];
+export const liberadoComConteudo = (nome, lista = NOMES_COM_CONTEUDO) => lista.some(n => String(n).toLowerCase() === String(nome).toLowerCase());
 export const pedidoLixeira = ({ projetoId }) => ({ metodo: 'POST', url: `${API}${ROTA_LIXEIRA}`, corpo: { id: String(projetoId) } });
 export const urlProjeto = projetoId => `${API}storage/v1/projects/${encodeURIComponent(projetoId)}`;
 
@@ -39,9 +42,11 @@ export function gruposExcluiveis(linhas) {
   const por = new Map();
   for (const l of linhas || []) {
     if (l.pastaTipo !== 'Projects') continue;
-    const k = String(l.pasta).toLowerCase(), g = por.get(k) || por.set(k, { nome: l.pasta, itens: [], comConteudo: 0, naoVerificadas: 0 }).get(k);
-    if (l.vazia === true && l.pastaId && l.podeExcluir !== false) g.itens.push({ pastaId: l.pastaId, empresa: l.empresa, cnpj: l.cnpj, pasta: l.pasta });
-    else if (l.vazia === false) g.comConteudo++; else g.naoVerificadas++;
+    const k = String(l.pasta).toLowerCase(), g = por.get(k) || por.set(k, { nome: l.pasta, itens: [], itensComConteudo: [], comConteudo: 0, naoVerificadas: 0 }).get(k);
+    const item = { pastaId: l.pastaId, empresa: l.empresa, cnpj: l.cnpj, pasta: l.pasta };
+    if (l.vazia === true && l.pastaId && l.podeExcluir !== false) g.itens.push(item);
+    else if (l.vazia === false) { g.comConteudo++; if (l.pastaId && l.podeExcluir !== false) g.itensComConteudo.push(item); }      // só vai se o nome estiver liberado (ver abaixo)
+    else g.naoVerificadas++;
   }
   return [...por.values()].filter(g => g.itens.length || g.comConteudo || g.naoVerificadas).sort((a, b) => b.itens.length - a.itens.length);
 }
@@ -50,7 +55,7 @@ export function gruposExcluiveis(linhas) {
  * Envia para a lixeira, uma por vez. `ler(url)` devolve o JSON; `escrever(pedido)` devolve { status }.
  * Devolve { feitos: [{ pastaId, empresa, cnpj, nome }], falhas: [{ ..., motivo }], parou }.
  */
-export async function enviarPastasParaLixeira(itens, { ler, escrever, parar, onProgresso, pausaMs = 250 } = {}) {
+export async function enviarPastasParaLixeira(itens, { ler, escrever, parar, onProgresso, pausaMs = 250, incluirConteudo = false } = {}) {
   const feitos = [], falhas = []; let parou = '', seguidos = 0, n = 0;
   for (const it of itens) {
     if (parar && parar()) { parou = 'pedido'; break; }
@@ -64,7 +69,8 @@ export async function enviarPastasParaLixeira(itens, { ler, escrever, parar, onP
       if (!leituraDeProjeto(url)) { falha('mudou'); continue; }
       const r = await ler(url), d = (r && (r.data || r)) || {};
       if (String(d.name) !== String(it.pasta)) { falha('mudou'); continue; }
-      if (d.hasChildren !== false) { falha('com-conteudo'); continue; }                   // só com a confirmação explícita do Onvio de que está vazia
+      if (typeof d.hasChildren !== 'boolean') { falha('com-conteudo'); continue; }        // o Onvio tem de dizer, com clareza, se está vazia ou não
+      if (d.hasChildren === true && !incluirConteudo) { falha('com-conteudo'); continue; }   // com conteúdo só com a liberação explícita do nome
       if (!d.permissions || d.permissions.delete !== true) { falha('sem-permissao-excluir'); continue; }
     } catch (e) { falha('mudou'); continue; }
     const r = await escrever(pedido);
