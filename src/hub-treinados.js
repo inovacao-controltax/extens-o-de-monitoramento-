@@ -1,6 +1,6 @@
 // Lista de clientes treinados puxada direto do Control Hub (Hub 432). O Hub só manda as empresas 100% treinadas e com contato;
 // aqui a resposta vira a lista de treinados da configuração (o Hub é a fonte: a lista inteira é trocada).
-import { normalizeCnpj, isValidCnpj, SETORES, loadConfig, saveConfig } from './config.js';
+import { normalizeCnpj, isValidCnpj, SETORES, loadConfig, saveConfig, raizesDoGrupo } from './config.js';
 
 export const CHAVE_HUB_ESTADO = 'monitor-hub-estado', CHAVE_DEMANDA = 'monitor-demanda';
 const st = () => chrome.storage.local;
@@ -76,9 +76,13 @@ export async function contatosDoHub(cnpj) {
   try {
     const cfg = await loadConfig();
     if (!String(cfg.hubCodigo || '').trim()) return { ok: false, motivo: 'sem-codigo', msg: MOTIVOS['sem-codigo'] };
-    const raiz = normalizeCnpj(cnpj).slice(0, 8);
-    const r = await chrome.runtime.sendMessage({ tipo: 'puxar-contatos', raiz });
-    if (!r || !r.ok) return { ok: false, motivo: (r && r.motivo) || 'erro', msg: msg(r || {}) };
-    return { ok: true, contatos: r.contatos || [] };
+    // o grupo todo (Atacapet, RB e YB...): os contatos de cada raiz, sem repetir e-mail
+    const contatos = [], vistos = new Set();
+    for (const raiz of raizesDoGrupo(normalizeCnpj(cnpj).slice(0, 8))) {
+      const r = await chrome.runtime.sendMessage({ tipo: 'puxar-contatos', raiz });
+      if (!r || !r.ok) return { ok: false, motivo: (r && r.motivo) || 'erro', msg: msg(r || {}) };
+      for (const c of r.contatos || []) { const k = String(c.email || '').toLowerCase(); if (k && !vistos.has(k)) { vistos.add(k); contatos.push(c); } }
+    }
+    return { ok: true, contatos };
   } catch (e) { return { ok: false, motivo: 'erro', msg: String(e && e.message || e).slice(0, 160) }; }
 }

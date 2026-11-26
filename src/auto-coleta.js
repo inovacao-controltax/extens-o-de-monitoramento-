@@ -4,7 +4,7 @@
 // empresas prioritárias a cada 10 min e a leitura completa a cada `horasAuto`. SÓ LEITURA (mesma lista fechada de rotas).
 // Para sozinha com acesso de cliente, se a sessão cair ou se o Onvio pedir calma. Uma trava impede duas abas lendo ao mesmo tempo.
 import { guardar, limitado, idsDaEquipe, coletar, listarClientes, perfilDaSessao, fetcherComFallback, precisaColetar, precisaRapida, mesclarEmpresas, lerNotificacoesEscritorio, AuthError, API } from './onvio-reader.js';
-import { loadConfig, DEPARTAMENTOS_LIDOS } from './config.js';
+import { loadConfig, DEPARTAMENTOS_LIDOS, raizesParaLer } from './config.js';
 import { loadSnapshot, saveSnapshot, saveSnapshotCompleto, duracaoDe as duracao } from './snapshot.js';
 import { puxarTreinados, CHAVE_HUB_ESTADO } from './hub-treinados.js';
 import { lerEnviosPorSolicitacao, assinaturaTreinadas } from './solicitacoes.js';
@@ -53,7 +53,7 @@ async function leituraCompleta(cfg, avisa) {
   const { clientes, falhaCnd } = await listarClientes(f, { pausa, onLista: l => avisa({ estado: 'rodando', feito: 0, total: 0, msg: `Lendo a lista de empresas… ${l.lidos}${l.total ? ' de ' + l.total : ''}` }) });
   try { await st().set({ [CHAVE_CLIENTES]: { em: Date.now(), clientes: compactos(clientes) } }); } catch (e) { /* cache é só para a releitura rápida */ }
   const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
-  const prioridade = new Set((cfg.trained || []).flatMap(t => [t.cnpj, String(t.cnpj).slice(0, 8)]));   // treinadas e seus outros estabelecimentos (mesma raiz) primeiro
+  const prioridade = new Set([...(cfg.trained || []).map(t => t.cnpj), ...raizesParaLer(cfg.trained)]);   // treinadas e seus outros estabelecimentos (mesma raiz) primeiro
   const equipeIds = await equipeSegura(f);
   const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, empresas: r.empresas || [], totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
   const t0 = Date.now();
@@ -72,7 +72,7 @@ async function leituraCompleta(cfg, avisa) {
 async function leituraRapida(cfg, snap, avisa) {
   const guardado = (await st().get(CHAVE_CLIENTES))[CHAVE_CLIENTES];
   if (!guardado || !guardado.clientes) return;
-  const raizes = new Set(cfg.trained.map(t => String(t.cnpj).slice(0, 8)));
+  const raizes = raizesParaLer(cfg.trained);
   const alvo = guardado.clientes.filter(c => raizes.has(String(c.cnpj || '').slice(0, 8)) && !c.inativo && c.ids.length);
   if (!alvo.length) return;
   const { f } = criarFetcher();
@@ -152,13 +152,13 @@ export async function rodarSolicitacoes() {
     const ativos = guardado.clientes.filter(c => c.codigo && c.cnpj && !c.inativo);
     const codCnpj = {}; for (const c of ativos) codCnpj[String(c.codigo)] = c.cnpj;
     // treinadas: data exata (lê também as respostas do cliente); a empresa treinada vale pela raiz do CNPJ (todos os estabelecimentos do grupo)
-    const raizes = new Set(cfg.trained.map(t => String(t.cnpj).slice(0, 8)));
+    const raizes = raizesParaLer(cfg.trained);
     const precisos = ativos.filter(c => raizes.has(String(c.cnpj).slice(0, 8))).map(c => String(c.codigo));
     const dia = n => new Date(agora - n * 864e5).toISOString().slice(0, 10);
     const r = await lerEnviosPorSolicitacao(f, null, { desde: dia(730), recorte: dia(cfg.diasSemEnvio || 30), precisos, pausa });
     const porCnpjDia = {};
     for (const [cod, d] of Object.entries(r.porCodigo)) { const cnpj = codCnpj[cod]; if (cnpj && d > (porCnpjDia[cnpj] || '')) porCnpjDia[cnpj] = d; }
-    const semCodigo = cfg.trained.filter(t => !ativos.some(c => String(c.cnpj).slice(0, 8) === String(t.cnpj).slice(0, 8))).length;
+    const semCodigo = cfg.trained.filter(t => { const rs = raizesParaLer([t]); return !ativos.some(c => rs.has(String(c.cnpj).slice(0, 8))); }).length;
     await st().set({ [CHAVE_SOLIC]: { em: Date.now(), escopo: ESCOPO_SOLIC, assinatura: assinaturaTreinadas(cfg.trained), porCnpj: porCnpjDia, lidas: r.lidas, tramites: r.tramites, limitada: r.limitada, semAcesso: r.semAcesso, semCodigo } });
     await st().set({ [CHAVE_SOLIC_ESTADO]: { estado: 'ok', em: Date.now() } });
   } catch (x) {
