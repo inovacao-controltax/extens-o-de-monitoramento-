@@ -64,3 +64,6 @@ Em **Avisar**, os campos **Para** e **Cópia** já vêm com os contatos da empre
 
 ## Lista de treinados sem recarregar (0.19.1)
 O monitor passa a ouvir a configuração: quando a lista de treinados é puxada sozinha em segundo plano (ou em outra aba da extensão), "Treinados sem envio" se atualiza na hora, sem precisar recarregar. Antes podia continuar mostrando "Lista de treinados vazia" com a lista já cheia.
+
+## Conferência de autoria: uma linha por empresa (0.19.2)
+Na conferência, estabelecimentos com o mesmo nome (matriz e filiais) agora são uma linha só. Antes a Atacapet aparecia 7 vezes com a soma de todos os estabelecimentos, o que parecia arquivo duplicado, mas era só a contagem repetida. **Primeiro resultado real (26/11/2026):** o identificador de quem enviou bate com a lista de funcionários (13 autores), a autoria é exata, e a dedução antiga classificava 263 de 274 arquivos do escritório como do cliente. Demanda por setor conferida: as empresas "Sem demanda" realmente não têm tarefa no Gestta.

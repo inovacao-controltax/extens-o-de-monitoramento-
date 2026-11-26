@@ -631,9 +631,10 @@ export async function diagnosticarAutoria(fetcher, clientes, { amostra = 12, pri
     if (heur[i].origem !== exa[i].origem) { divergentes++; if (heur[i].origem === 'escritorio') heurEscritorioMasCliente++; else heurClienteMasEscritorio++; }
   });
   const conta = (lista, o) => lista.filter(d => d.origem === o).length;
-  const porEmpresa = lidas.map(c => {
-    const idx = comArquivo.map((d, i) => (d.empresa === c.nome ? i : -1)).filter(i => i >= 0);
-    return { empresa: c.nome, arquivos: idx.length, clienteEquipe: vinculo ? idx.filter(i => exa[i].origem === 'cliente').length : null, escritorioEquipe: vinculo ? idx.filter(i => exa[i].origem === 'escritorio').length : null,
+  // Estabelecimentos com o mesmo nome (matriz e filiais) viram uma linha só: antes cada um repetia a soma de todos.
+  const porEmpresa = [...new Set(lidas.map(c => c.nome))].map(nome => {
+    const idx = comArquivo.map((d, i) => (d.empresa === nome ? i : -1)).filter(i => i >= 0);
+    return { empresa: nome, arquivos: idx.length, clienteEquipe: vinculo ? idx.filter(i => exa[i].origem === 'cliente').length : null, escritorioEquipe: vinculo ? idx.filter(i => exa[i].origem === 'escritorio').length : null,
       clienteHeuristica: idx.filter(i => heur[i].origem === 'cliente').length, escritorioHeuristica: idx.filter(i => heur[i].origem === 'escritorio').length, semAutor: idx.filter(i => !comArquivo[i].autor).length };
   });
   return { empresasLidas: lidas.length, falhas, arquivos: comArquivo.length, autoresDistintos: guids.size, funcionariosNaLista: equipeIds ? equipeIds.size : 0, autoresNaEquipe: naEquipe.size, vinculo,
