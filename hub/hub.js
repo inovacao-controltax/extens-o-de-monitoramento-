@@ -238,7 +238,7 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}${k === 'nomenclatura' ? correcaoNomesHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -297,10 +297,12 @@ function correcaoNomesHtml() {
   const { prontas, pendentes } = planoDeCorrecao(linhas, re, source().docs || []);
   const prev = prontas.slice(0, 40).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="col-sec">${esc(r.pasta)}</td><td>${esc(r.arquivo)}</td><td><b>${esc(r.novo)}</b> <span class="muted">· ${r.de === 'nome' ? 'competência do nome' : 'competência da pasta'}</span></td></tr>`).join('');
   const por = {}; pendentes.forEach(x => { por[x.motivo] = (por[x.motivo] || 0) + 1; });
+  const semId = por['sem-id'] || 0;      // leitura de antes da 0.23: sem o identificador do arquivo não dá para corrigir
   const pend = Object.entries(por).sort((a, b) => b[1] - a[1]).map(([m, n]) => `<span class="chip">${esc(MOTIVOS_SEM_PROPOSTA[m] || m)} <small>${n}</small></span>`).join('');
-  return `<div class="blk-b" style="border-top:1px solid var(--border,#e5e7eb)"><h3 class="sub-h">Correção dos nomes <span class="count">${prontas.length}</span></h3>
+  return `<div style="padding:12px 16px;border-bottom:1px solid var(--border,#e5e7eb)"><h3 class="sub-h">Correção dos nomes <span class="count">${prontas.length}</span></h3>
     <p class="note-txt" style="margin:4px 0 8px"><b>${prontas.length}</b> ${prontas.length === 1 ? 'arquivo tem' : 'arquivos têm'} proposta com a competência certa (do nome ou da pasta). <b>${pendentes.length}</b> precisam da sua decisão: ${pend || 'nenhum'}. A extensão nunca chuta a competência.</p>
     ${prontas.length ? `<details><summary class="btn btn-sm">Ver as propostas (${Math.min(40, prontas.length)} de ${prontas.length})</summary><div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th class="col-sec">Pasta</th><th>Nome atual</th><th>Nome proposto</th></tr></thead><tbody>${prev}</tbody></table></div></details>` : ''}
+    ${semId ? `<p class="note-txt" style="margin:8px 0 0"><b>${semId}</b> arquivo${semId === 1 ? '' : 's'} com proposta ${semId === 1 ? 'está' : 'estão'} sem o identificador do Onvio (leitura antiga). Rode <b>Coletar do Onvio</b> de novo para liberar o botão Corrigir.</p>` : ''}
     <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${prontas.length ? `<button type="button" class="btn btn-primary" data-corrigir-nomes>${corrigindo ? 'Parar a correção' : (primeiraCorrecao() ? 'Corrigir 1 arquivo (teste)' : `Corrigir ${Math.min(prontas.length, MAX_RODADA)} arquivo${prontas.length === 1 ? '' : 's'}`)}</button>` : ''}${ultimaRodada() && !corrigindo ? `<button type="button" class="btn" data-desfazer-nomes>Desfazer a última rodada (${ultimaRodada().feitos.length})</button>` : ''}</div>
     <p class="note-txt" style="margin:8px 0 0">Cada arquivo é conferido no Onvio antes e renomeado <b>um por vez</b>; nada é excluído nem movido. ${primeiraCorrecao() ? 'A primeira vez corrige <b>só 1 arquivo</b>, para você conferir no Onvio antes de continuar.' : ''}${correcoes.rodadas.length ? ` Já corrigidos: ${correcoes.rodadas.reduce((s, r) => s + r.feitos.length, 0)}.` : ''}</p></div>`;
 }
