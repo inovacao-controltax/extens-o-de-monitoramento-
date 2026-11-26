@@ -181,6 +181,8 @@ let TAM_PAGINA = 500;           // páginas grandes = menos chamadas por pasta; 
 export const tamanhoDaPagina = () => TAM_PAGINA;
 const URL_FILHOS = (tipo, id, de, n = TAM_PAGINA) => `${API}storage/v2/${tipo}/${encodeURIComponent(id)}/children?from=${de}&pageSize=${n}&sort=name:asc&containersOnly=false&trashed=false&countDocuments=false&calculateLocks=true`;
 
+/** O que a leitura deixou de pedir ao Onvio sem perder nada (para o Desempenho): zerado a cada coleta. */
+export const ESTAT = { pastasVazias: 0, paginasPoupadas: 0 };
 export async function filhosDe(fetcher, tipo, id, pausa) {      // pausa só no modo suave; no rápido o limite geral cuida do ritmo
   const out = [];
   for (let de = 1, n = 0; n < 20; n++) {
@@ -190,7 +192,10 @@ export async function filhosDe(fetcher, tipo, id, pausa) {      // pausa só no 
     const lote = listaDe(d);
     out.push(...lote);
     const pag = (d && d.data && !Array.isArray(d.data) ? d.data : d) || {};
-    if (!lote.length || !(pag.hasMore === true || (pag.hasMore == null && lote.length >= 100))) break;
+    // Sem "hasMore" (o Onvio não manda), há mais página só se veio a página cheia. Se o Onvio confirmou o tamanho pedido (itemsPerPage),
+    // a página cheia é esse tamanho; senão vale o mínimo seguro de 100 (como antes). Poupa a chamada que voltava vazia em pastas de 100 a 499 itens.
+    const pedido = TAM_PAGINA, aceito = Number(pag.itemsPerPage) || 0, cheia = aceito && aceito === pedido ? pedido : 100;
+    if (!lote.length || !(pag.hasMore === true || (pag.hasMore == null && lote.length >= cheia))) { if (pag.hasMore == null && lote.length >= 100 && cheia > 100) ESTAT.paginasPoupadas++; break; }
     de += lote.length;
     if (pausa) await pausa(200);
   }
@@ -284,6 +289,8 @@ export async function pastasDoModelo(fetcher, clientes, codigo = '9999') {
  * Lê as pastas e arquivos de UMA empresa. Os "projetos" do cliente são os departamentos (Pessoal, Fiscal...) e viram a pasta de
  * primeiro nível. Se houver um projeto só e o nome dele não for um departamento conhecido, a raiz é esse projeto (desenho antigo).
  */
+/** O Onvio diz, na própria listagem, que a pasta não tem nada (nem arquivo nem subpasta): não precisa abrir. Só vale com a informação explícita. */
+export const pastaSemNada = x => !!x && (x.hasChildren === false || (x.hasFiles === false && x.hasFolders === false));
 export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMax = 3000, conhecidas = [], soConhecidas = false, descer, rapido = false } = {}) {
   if (rapido) pausa = null;                                     // modo rápido: sem pausas; o limite geral de chamadas (limitado) protege o Onvio
   let projetos = [];
@@ -297,7 +304,7 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   // Para ler mais rápido, só desce nos projetos conhecidos (departamentos que importam); os outros entram só pelo nome.
   const lerSo = new Set((descer || conhecidas).map(semAcento));
   const desce = p => !soConhecidas || raizUnica || lerSo.has(semAcento(nomeDe(p)));
-  const fila = projetos.filter(desce).map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
+  const fila = projetos.filter(desce).filter(p => { if (pastaSemNada(p)) { ESTAT.pastasVazias++; return false; } return true; }).map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
   const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema',
     // o que o Onvio informa da pasta (sem abrir): vazia? (hasChildren) e se o usuário pode excluir. null = o Onvio não disse.
     pastaId: p.id != null ? String(p.id) : '', pastaTipo: 'Projects', vazia: p.hasChildren === false ? true : p.hasChildren === true ? false : null, podeExcluir: p.permissions && typeof p.permissions.delete === 'boolean' ? p.permissions.delete : null }));
@@ -310,7 +317,7 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
     for (const { no, filhos } of lidos) {
       for (const x of filhos) {
         if (++itens > itensMax) { truncado = true; break; }
-        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
+        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (pastaSemNada(x)) { ESTAT.pastasVazias++; continue; } if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
         else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), docId: x.id != null ? String(x.id) : '', pastaId: no.id != null ? String(no.id) : '', pastaTipo: no.tipo, data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
       }
       if (itens > itensMax) break;
@@ -331,7 +338,11 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   if (prioridade && prioridade.size) alvo = [...alvo.filter(ehPrior), ...alvo.filter(c => !ehPrior(c))];
   alvo = alvo.slice(0, limite > 0 ? limite : undefined);
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
-  let i = 0, fatal = null, ultimo = 0; const falhadas = [], empresas = [];   // empresas = as que foram lidas (mesmo sem nenhum arquivo): para listar quem nunca enviou                       // o 1º parcial sai logo depois da 1ª empresa
+  ESTAT.pastasVazias = 0; ESTAT.paginasPoupadas = 0;
+  let i = 0, fatal = null, ultimo = 0, gravando = null, recusasSessao = 0;
+  // Uma recusa numa empresa não prova que a sessão caiu (o Onvio recusa pastas soltas): confere a sessão antes de parar tudo.
+  // Mais de 30 recusas com a sessão viva também param (algo está errado e não adianta insistir).
+  const sessaoViva = async () => { if (++recusasSessao > 30) return false; try { await fetcher(API + 'security/v1/session-and-bindings'); return true; } catch (e) { return false; } }; const falhadas = [], empresas = [];   // empresas = as que foram lidas (mesmo sem nenhum arquivo): para listar quem nunca enviou                       // o 1º parcial sai logo depois da 1ª empresa
   const resumo = (lista) => { const x = { ...q }; x.docs = lista.filter(d => d.arquivo).length; x.origemIndefinida = lista.filter(d => d.arquivo && d.origem === 'indefinida').length; return x; };
   async function trabalhador() {
     while (!fatal) {
@@ -342,19 +353,25 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
         docs.push(...r.docs); q.lidas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj });
         if (!r.projetos) q.semProjeto++;
         if (r.truncado) q.truncadas++;
-      } catch (e) { if (e instanceof AuthError) { fatal = e; return; } q.falhas++; falhadas.push(c); }
+      } catch (e) {
+        if (e instanceof AuthError && !(await sessaoViva())) { fatal = e; return; }      // a sessão caiu mesmo: para tudo
+        q.falhas++; falhadas.push(c);                                                    // só esta empresa falhou: relida no fim
+      }
       if (!c.cnpj) q.semCnpj++;
       if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
       // cadência adaptativa: quanto mais linhas já lidas, mais caro é entregar um parcial
-      if (onParcial && Date.now() - ultimo >= (cadaParcialMs === 0 ? 0 : Math.max(cadaParcialMs, Math.min(15000, docs.length * 0.15)))) {
+      if (onParcial && !gravando && Date.now() - ultimo >= (cadaParcialMs === 0 ? 0 : Math.max(cadaParcialMs, Math.min(15000, docs.length * 0.15)))) {
         ultimo = Date.now();
         const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia, { equipeIds });
-        await onParcial({ docs: copia, empresas: empresas.slice(), qualidade: { ...resumo(copia), autores: aut } });
+        // em segundo plano: a leitura segue enquanto o parcial é gravado (um de cada vez; o próximo espera este terminar)
+        gravando = Promise.resolve(onParcial({ docs: copia, empresas: empresas.slice(), qualidade: { ...resumo(copia), autores: aut } })).catch(() => {}).finally(() => { gravando = null; });
+        if (cadaParcialMs === 0) await gravando;      // testes que pedem todo parcial esperam cada um
       }
       if (pausa && !rapido) await pausa(paralelo > 1 ? 60 : 150);
     }
   }
   await Promise.all(Array.from({ length: Math.max(1, paralelo) }, trabalhador));
+  if (gravando) await gravando;      // o último parcial termina antes do resultado final (nunca grava por cima dele)
   // Confiabilidade: o que falhou (rede, 5xx) é lido de novo, uma vez, no fim; só o que falhar de novo conta como falha.
   if (!fatal && falhadas.length && !(parar && parar())) {
     q.recuperadas = 0;
@@ -366,14 +383,14 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
           docs.push(...r.docs); q.lidas++; q.falhas--; q.recuperadas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj });
           if (!r.projetos) q.semProjeto++;
           if (r.truncado) q.truncadas++;
-        } catch (e) { if (e instanceof AuthError) { fatal = e; return; } }
+        } catch (e) { if (e instanceof AuthError && !(await sessaoViva())) { fatal = e; return; } }      // recusada de novo com a sessão viva: fica como falha
         if (onProgresso) onProgresso({ feito: q.lidas + q.falhas, total: alvo.length });
       }
     }));
   }
   if (fatal) throw fatal;
   const aut = classificarAutores(docs, { equipeIds });
-  const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut });
+  const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut, pastasVaziasPuladas: ESTAT.pastasVazias, paginasPoupadas: ESTAT.paginasPoupadas });
   return { docs, empresas, qualidade: q };
 }
 
@@ -468,21 +485,25 @@ const dorme = ms => new Promise(r => setTimeout(r, ms));
 export function fetcherComFallback(brutos, { espera = dorme } = {}) {
   let preferido = 0;
   const f = async url => {
-    const falhas = [];
+    const falhas = []; let soSessao = true;      // só é "sessão" se TODAS as tentativas falharam por sessão (401/403, redirecionamento, página de login)
     for (let k = 0; k < brutos.length; k++) {
       const i = (preferido + k) % brutos.length, b = brutos[i];
       let v = await b.f(url);
-      if (v.status === 503) { await espera(800); v = await b.f(url); }
+      if (v.status === 503 || v.status === 500 || v.status === 502 || v.status === 504) { await espera(800); v = await b.f(url); }   // erro passageiro do Onvio: tenta mais uma vez
       if (v.status === 429) { await espera(3000); v = await b.f(url); }
       try { const dados = lerResposta(v); preferido = i; f.via = b.via; return dados; }
       catch (e) {
+        if (!(e instanceof AuthError)) soSessao = false;
         if (v.status === 0) falhas.push(`${b.via}: falha de rede`);
         else if (v.status >= 200 && v.status < 300 && /json/i.test(v.ct || '')) throw e;   // resposta boa, mas inválida: outro jeito não ajuda
         else if (v.status === 404 || v.status === 400 || v.status === 412) throw e;           // a rota recusou o pedido: outro jeito não ajuda
         else falhas.push(`${b.via}: ${e.message}`);
       }
     }
-    throw new AuthError('Tentativas: ' + falhas.join(' · '));
+    // Antes, qualquer falha virava "sem sessão" e derrubava a leitura inteira (ex.: 500 do Onvio numa pasta + 401 do jeito que não é o usado).
+    // Agora: só sessão de verdade é AuthError; erro do Onvio (5xx), de rede etc. é falha comum, que fica só naquela empresa e é relida no fim.
+    const msg = 'Tentativas: ' + falhas.join(' · ');
+    throw soSessao ? new AuthError(msg) : new Error(msg);
   };
   return f;
 }

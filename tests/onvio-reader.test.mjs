@@ -305,8 +305,13 @@ test('em paralelo, erro de sessão ainda interrompe tudo e falha numa empresa n�
   const g = async u => { if (u.includes('primaryAssociationId=f3')) throw new Error('HTTP 500'); return f(u); };
   const r = await coletar(g, clientes, { conhecidas: ['Pessoal'], paralelo: 4 });
   assert.equal(r.qualidade.falhas, 1); assert.equal(r.qualidade.lidas, 9);
-  const h = async u => { if (u.includes('primaryAssociationId=f5')) throw new AuthError('HTTP 401'); return f(u); };
+  // sessão caiu de verdade (a conferência da sessão também recusa): para tudo
+  const h = async u => { if (u.includes('primaryAssociationId=f5') || u.includes('session-and-bindings')) throw new AuthError('HTTP 401'); return f(u); };
   await assert.rejects(() => coletar(h, clientes, { conhecidas: ['Pessoal'], paralelo: 4 }), AuthError);
+  // recusa só numa empresa, com a sessão viva: segue com as outras (antes parava a leitura inteira)
+  const k = async u => { if (u.includes('primaryAssociationId=f5')) throw new AuthError('HTTP 401'); if (u.includes('session-and-bindings')) return {}; return f(u); };
+  const r2 = await coletar(k, clientes, { conhecidas: ['Pessoal'], paralelo: 4 });
+  assert.equal(r2.qualidade.lidas, 9); assert.equal(r2.qualidade.falhas, 1);
 });
 test('prioridade: as empresas treinadas são lidas primeiro', async () => {
   const c = muitas(10), f = fakeApi(c), { clientes } = await listarClientes(f);
@@ -615,4 +620,66 @@ test('pastas do padrão: lidas da empresa modelo (9999) e usadas no lugar da lis
   const cfg = { allowedFolders: ['Pessoal', 'Contábil'] };
   assert.deepEqual(checkPastas(docs, cfg).map(x => x.pasta), ['Cobrança']);                                    // sem modelo: a lista das configurações
   assert.deepEqual(checkPastas(docs, cfg, r.nomes).map(x => x.pasta).sort(), ['Contábil', 'Cobrança'].sort());  // com modelo: só as pastas dele
+});
+
+import { pastaSemNada, ESTAT } from '../src/onvio-reader.js';
+test('velocidade: sem a página extra quando o Onvio confirma o tamanho pedido; com ela quando não confirma', async () => {
+  const P = tamanhoDaPagina(), n = Math.max(1, P - 30);              // menos itens que a página: cabe numa chamada só
+  const itens = k => Array.from({ length: k }, (_, i) => ({ id: 'a' + i, name: `f${i}.pdf`, mimeType: 'application/pdf' }));
+  let chamadas = 0;
+  const f = async url => { chamadas++; const de = +new URL(url).searchParams.get('from'); return { data: { itemsPerPage: tamanhoDaPagina(), items: itens(n).slice(de - 1, de - 1 + tamanhoDaPagina()) } }; };
+  const r = await filhosDe(f, 'Folders', 'x'); assert.equal(r.length, n); assert.equal(chamadas, 1);
+  chamadas = 0;
+  const g = async url => { chamadas++; const de = +new URL(url).searchParams.get('from'); return { data: { items: itens(n).slice(de - 1, de - 1 + tamanhoDaPagina()) } }; };
+  const r2 = await filhosDe(g, 'Folders', 'x'); assert.equal(r2.length, n); assert.equal(chamadas, n >= 100 ? 2 : 1);   // sem itemsPerPage: o mínimo seguro de antes
+  chamadas = 0;
+  const h = async url => { chamadas++; const de = +new URL(url).searchParams.get('from'); return { data: { itemsPerPage: 100, items: itens(250).slice(de - 1, de - 1 + 100) } }; };
+  const r3 = await filhosDe(h, 'Folders', 'x'); assert.equal(r3.length, 250); assert.equal(chamadas, 3);     // o Onvio limitou a 100: lê tudo
+});
+test('velocidade: pasta que o Onvio diz vazia não é aberta, e nenhum arquivo deixa de ser lido', async () => {
+  assert.equal(pastaSemNada({ hasChildren: false }), true);
+  assert.equal(pastaSemNada({ hasFiles: false, hasFolders: false }), true);
+  assert.equal(pastaSemNada({ hasFiles: true, hasFolders: false }), false);
+  assert.equal(pastaSemNada({}), false);                                                                    // sem a informação, abre como antes
+  const abertas = [];
+  const f = async url => {
+    if (url.includes('storage/v1/projects')) return { data: [{ id: 'P', name: 'Fiscal', hasChildren: true }, { id: 'V', name: 'Pessoal', hasChildren: false }] };
+    const id = /\/(Projects|Folders)\/([^/]+)\/children/.exec(url)[2]; abertas.push(id);
+    if (id === 'P') return { data: { items: [{ id: 'F1', name: '2026', type: 'folder', hasChildren: true }, { id: 'F2', name: 'vazia', type: 'folder', hasChildren: false }, { id: 'F3', name: 'semnada', type: 'folder', hasFiles: false, hasFolders: false }, { id: 'F4', name: 'semflag', type: 'folder' }] } };
+    if (id === 'F1') return { data: { items: [{ id: 'd1', name: '10-2026 a.pdf', mimeType: 'application/pdf' }] } };
+    if (id === 'F4') return { data: { items: [{ id: 'd4', name: 'b.pdf', mimeType: 'application/pdf' }] } };
+    return { data: { items: [] } };
+  };
+  ESTAT.pastasVazias = 0;
+  const r = await lerEmpresa(f, { ids: ['c'], nome: 'A', cnpj: '1' }, { conhecidas: ['Fiscal', 'Pessoal'], soConhecidas: true, descer: ['Fiscal', 'Pessoal'], rapido: true });
+  assert.deepEqual(abertas.sort(), ['F1', 'F4', 'P']);                                                      // não abriu V, F2 nem F3
+  assert.deepEqual(r.docs.filter(d => d.arquivo).map(d => d.arquivo).sort(), ['10-2026 a.pdf', 'b.pdf']);
+  assert.equal(ESTAT.pastasVazias, 3);
+});
+
+test('leitura não para por erro do Onvio: 500 + 401 é falha comum; só 401 em tudo é sessão', async () => {
+  const resp = (status, ct = 'application/json', body = '{}') => async () => ({ status, ct, body });
+  const sem = { espera: async () => {} };
+  const a = fetcherComFallback([{ via: 'página', f: resp(500) }, { via: 'origem', f: resp(401) }], sem);
+  await assert.rejects(a(API + 'x'), e => !(e instanceof AuthError) && /500/.test(e.message));          // o caso do print: não é sessão
+  const b = fetcherComFallback([{ via: 'página', f: resp(401) }, { via: 'origem', f: resp(403) }], sem);
+  await assert.rejects(b(API + 'x'), e => e instanceof AuthError);
+  const c = fetcherComFallback([{ via: 'página', f: resp(200, 'text/html', '<html>login</html>') }, { via: 'origem', f: resp(401) }], sem);
+  await assert.rejects(c(API + 'x'), e => e instanceof AuthError);                                      // página de login também é sessão
+  let n = 0; const d = fetcherComFallback([{ via: 'página', f: async () => (++n === 1 ? { status: 500, ct: '', body: '' } : { status: 200, ct: 'application/json', body: '{"ok":1}' }) }], sem);
+  assert.deepEqual(await d(API + 'x'), { ok: 1 });                                                       // 500 passageiro: tenta de novo
+});
+test('uma empresa recusada não derruba a leitura de todas, se a sessão está viva', async () => {
+  const clientes = ['1', '2', '3'].map(i => ({ ids: [i], codigo: i, nome: 'E' + i, cnpj: i.repeat(14), inativo: false }));
+  let sessaoOk = true;
+  const f = async url => {
+    if (url.includes('session-and-bindings')) { if (sessaoOk) return {}; throw new AuthError('HTTP 401'); }
+    if (url.includes('primaryAssociationId=2')) throw new AuthError('Tentativas: recusado');                 // só a empresa 2
+    if (url.includes('storage/v1/projects')) return { data: [{ id: 'P' + url.match(/primaryAssociationId=(\d)/)[1], name: 'Fiscal' }] };
+    return { data: { items: [{ id: 'd', name: '10-2026 a.pdf', mimeType: 'application/pdf' }] } };
+  };
+  const r = await coletar(f, clientes, { conhecidas: ['Fiscal'], descer: ['Fiscal'], rapido: true, paralelo: 2 });
+  assert.equal(r.qualidade.lidas, 2); assert.equal(r.qualidade.falhas, 1);                                // seguiu com as outras
+  sessaoOk = false;
+  await assert.rejects(coletar(f, clientes, { conhecidas: ['Fiscal'], descer: ['Fiscal'], rapido: true }), e => e instanceof AuthError);   // sessão caiu: para
 });
