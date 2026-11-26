@@ -9,6 +9,7 @@ import { renderColeta } from './coleta-view.js';
 import { loadSnapshot, loadSnapshotCompleto, snapshotEstavel, saveSnapshot, saveSnapshotCompleto } from '../src/snapshot.js';
 import { criarFetcher, criarEscritor } from '../src/onvio-tab.js';
 import { corrigirNomes, desfazerNomes, MOTIVOS_FALHA } from '../src/corrigir-escrita.js';
+import { gruposExcluiveis, enviarPastasParaLixeira, MOTIVOS_PASTA } from '../src/excluir-pastas.js';
 import { confirmModal } from './config-view.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
@@ -75,6 +76,7 @@ const TABS = {
 const KEYS = Object.keys(TABS);
 
 let correcoes = { rodadas: [] };      // registro das correções feitas no Onvio (nome antigo e novo), para desfazer: monitor-correcoes
+let correcoesPastas = { rodadas: [] };   // pastas enviadas para a lixeira do Onvio: monitor-correcoes-pastas
 let corrigindo = null;               // { parar } enquanto uma rodada está andando
 let pastasModelo = null;     // { em, codigo, empresa, nomes }: as pastas da empresa modelo (9999), que são o padrão
 let demandaHub = null;      // { em, mapa: { raiz: [setores com demanda] } } puxado do Hub (Hub 436)
@@ -241,7 +243,7 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() : ''}${k === 'pastas' ? excluirPastasHtml() : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -294,6 +296,39 @@ async function desfazerNomesAgora() {
   corrigindo = null; rod.desfeita = true; await guardarCorrecoes();
   if (r.feitos.length) await aplicarNomesNaLeitura(r.feitos.map(f => ({ docId: f.docId, novo: f.para })));
   toast(`${r.feitos.length} arquivo${r.feitos.length === 1 ? '' : 's'} de volta ao nome antigo.${r.falhas.length ? ` ${r.falhas.length} já não tinham o nome novo.` : ''}`, r.feitos.length ? 'ok' : 'warn');
+  recompute(); render(false);
+}
+// ---- Pastas fora do padrão: enviar as VAZIAS para a lixeira do Onvio (restaura pelo próprio Onvio). Nunca pasta com conteúdo. ----
+const primeiraLixeira = () => !correcoesPastas.rodadas.some(r => r.feitos.length);
+function excluirPastasHtml() {
+  const grupos = gruposExcluiveis(data('pastas')).filter(g => g.itens.length || g.comConteudo);
+  if (!grupos.length || !real()) return '';
+  const linhas = grupos.map(g => `<div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0"><span><b>${esc(g.nome)}</b> · <span class="badge s-ok">${g.itens.length} vazia${g.itens.length === 1 ? '' : 's'}</span>${g.comConteudo ? ` <span class="badge s-warn">${g.comConteudo} com conteúdo</span>` : ''}${g.naoVerificadas ? ` <span class="muted">${g.naoVerificadas} não verificada${g.naoVerificadas === 1 ? '' : 's'}</span>` : ''}</span>${g.itens.length ? `<button type="button" class="btn btn-sm btn-primary" data-lixeira="${esc(g.nome)}">${corrigindo ? 'Parar' : primeiraLixeira() ? 'Enviar 1 vazia para a lixeira (teste)' : `Enviar ${Math.min(g.itens.length, MAX_RODADA)} vazia${g.itens.length === 1 ? '' : 's'} para a lixeira`}</button>` : ''}</div>`).join('');
+  return `<div style="padding:12px 16px;border-bottom:1px solid var(--border,#e5e7eb)"><h3 class="sub-h">Excluir pastas vazias fora do padrão</h3>
+    <p class="note-txt" style="margin:4px 0 8px">Só vão para a <b>lixeira do Onvio</b> as pastas que o Onvio diz estarem <b>vazias</b> agora, uma por vez, conferindo antes. Pasta com conteúdo nunca é enviada. ${primeiraLixeira() ? 'A primeira vez envia <b>só 1 pasta</b>, para você conferir no Onvio.' : ''} Dá para restaurar pela lixeira do próprio Onvio.</p>${linhas}</div>`;
+}
+async function aplicarPastasNaLeitura(ids) {
+  const set = new Set(ids);
+  for (const [ler, salvar] of [[loadSnapshot, saveSnapshot], [loadSnapshotCompleto, saveSnapshotCompleto]]) {
+    const s = await ler(); if (!s || !Array.isArray(s.docs)) continue;
+    const antes = s.docs.length; s.docs = s.docs.filter(d => !(d.pastaTipo === 'Projects' && set.has(d.pastaId)));
+    if (s.docs.length !== antes) await salvar(s);
+  }
+}
+async function enviarParaLixeiraAgora(botao, nome) {
+  if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
+  const g = gruposExcluiveis(data('pastas')).find(x => x.nome === nome); if (!g || !g.itens.length) return;
+  const primeira = primeiraLixeira(), itens = primeira ? g.itens.slice(0, 1) : g.itens.slice(0, MAX_RODADA);
+  const amostra = itens.slice(0, 8).map(i => `${i.empresa} (${formatCnpj(i.cnpj)})\nPasta: ${i.pasta}`).join('\n\n');
+  const okc = await confirmModal({ title: `Enviar ${itens.length} pasta${itens.length === 1 ? '' : 's'} "${nome}" para a lixeira do Onvio?`, ok: 'Enviar para a lixeira', danger: true, text: `${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só esta pasta, para você conferir no Onvio antes de continuar. ' : ''}Só pastas vazias, uma por vez, conferindo cada uma antes. Vão para a lixeira do Onvio e dá para restaurar de lá.` });
+  if (!okc) return;
+  let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
+  corrigindo = { parar: false }; render(false);
+  const r = await enviarPastasParaLixeira(itens, { ler, escrever, parar: () => corrigindo && corrigindo.parar, onProgresso: p => toast(`Enviando para a lixeira… ${p.ok} de ${p.total}`) });
+  corrigindo = null;
+  if (r.feitos.length) { correcoesPastas.rodadas = [...correcoesPastas.rodadas, { em: new Date().toISOString(), nome, feitos: r.feitos, falhas: r.falhas.length, parou: r.parou }].slice(-20); try { await chrome.storage.local.set({ 'monitor-correcoes-pastas': correcoesPastas }); } catch (e) { /* o registro é só para consulta */ } await aplicarPastasNaLeitura(r.feitos.map(f => f.pastaId)); }
+  const motivo = r.falhas.length ? ` ${r.falhas.length} não enviada${r.falhas.length === 1 ? '' : 's'}: ${MOTIVOS_PASTA[r.falhas[0].motivo] || r.falhas[0].motivo}.` : '';
+  toast(`${r.feitos.length} pasta${r.feitos.length === 1 ? '' : 's'} enviada${r.feitos.length === 1 ? '' : 's'} para a lixeira.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ` Confira no Onvio: ${itens[0].empresa}, a pasta "${nome}" deve estar na lixeira. Se estiver certo, clique de novo para as demais.` : ''}`, r.feitos.length ? 'ok' : 'warn');
   recompute(); render(false);
 }
 function correcaoNomesHtml() {
@@ -384,6 +419,7 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-classe]').forEach(e => e.addEventListener('click', () => { state.envClasse = e.dataset.envClasse; render(false); }));
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
+  v.querySelectorAll('[data-lixeira]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeira)));
   v.querySelectorAll('[data-corrigir-nomes]').forEach(e => e.addEventListener('click', () => corrigirNomesAgora(e)));
   v.querySelectorAll('[data-desfazer-nomes]').forEach(e => e.addEventListener('click', desfazerNomesAgora));
   v.querySelectorAll('[data-avisar]').forEach(e => e.addEventListener('click', () => abrirAviso(e.dataset.avisar)));
@@ -544,6 +580,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', CHAVE_HIST]).then(r => { correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', CHAVE_HIST]).then(r => { correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
