@@ -35,3 +35,28 @@ test('link do Zimbra: só https; endereço estranho volta ao padrão', () => {
   for (const ruim of ['javascript:alert(1)', 'http://mail.x.com/', 'ftp://x', 'mail.controltax.com.br', 'https://a b.com']) assert.ok(linkZimbra(ruim, { assunto: 'a', corpo: 'b' }).startsWith('https://mail.controltax.com.br/?view=compose'), ruim);
   assert.ok(linkZimbra('https://webmail.outro.com.br/x/', { assunto: 'a', corpo: 'b' }).startsWith('https://webmail.outro.com.br/x/?view=compose'));
 });
+
+import { destinatarios } from '../src/aviso.js';
+test('destinatários: Para é quem tem acesso a mais setores; os outros em cópia; a mesma pessoa uma vez; vários e-mails num campo viram vários', () => {
+  const d = destinatarios([
+    { nome: 'Ana', email: 'ana@cli.com.br', setores: ['Pessoal'], treinado: true },
+    { nome: 'Bia', email: 'BIA@cli.com.br; bia2@cli.com.br', setores: ['Pessoal', 'Fiscal', 'Contábil'], treinado: true },
+    { nome: 'Ana de novo', email: 'ana@cli.com.br', setores: ['Fiscal'], treinado: false },
+    { nome: 'Sem e-mail', email: '', setores: ['Pessoal'] },
+    { nome: 'Lixo', email: 'nao-e-email', setores: [] },
+  ]);
+  assert.equal(d.para, 'BIA@cli.com.br');                       // 3 setores
+  assert.deepEqual(d.cc, ['bia2@cli.com.br', 'ana@cli.com.br']);   // bia2 também tem 3 setores; Ana (junta os dois cadastros) tem 2
+  assert.equal(d.total, 3);
+});
+test('destinatários: sem e-mail algum não inventa ninguém; corta a cópia grande e avisa', () => {
+  assert.deepEqual(destinatarios([{ nome: 'x', email: '' }, null, {}]), { para: '', cc: [], total: 0, cortados: 0, pessoas: [] });
+  const muitos = Array.from({ length: 20 }, (_, i) => ({ nome: 'P' + i, email: `p${i}@cli.com.br`, setores: ['Pessoal'] }));
+  const d = destinatarios(muitos, { maxCc: 12 });
+  assert.equal(d.cc.length, 12); assert.equal(d.cortados, 7); assert.equal(d.para, 'p0@cli.com.br');
+});
+test('link do Zimbra com Para e Cópia', () => {
+  const u = new URL(linkZimbra('', { assunto: 'a', corpo: 'b', para: 'x@y.com', cc: ['c@y.com', 'd@y.com'] }));
+  assert.equal(u.searchParams.get('to'), 'x@y.com'); assert.equal(u.searchParams.get('cc'), 'c@y.com,d@y.com');
+  assert.equal(new URL(linkZimbra('', { assunto: 'a', corpo: 'b' })).searchParams.has('cc'), false);
+});

@@ -27,8 +27,32 @@ export function montarAviso(cfg, linha) {
  * Endereço do rascunho no Zimbra. O Zimbra decodifica o endereço inteiro antes de separar os campos: "&", "+" e "%" no texto viram
  * os parecidos de largura total para não quebrarem o assunto ou o corpo (mesmo cuidado do Control Hub).
  */
-export function linkZimbra(base, { assunto, corpo, para = '' }) {
+export function linkZimbra(base, { assunto, corpo, para = '', cc = '' }) {
   const fix = t => String(t).replace(/&/g, '＆').replace(/\+/g, '＋').replace(/%/g, '％');
   const raiz = (/^https:\/\/[^\s]+$/.test(String(base || '').trim()) ? String(base).trim() : ZIMBRA_PADRAO).replace(/[?#].*$/, '').replace(/\/?$/, '/');   // só https; qualquer outra coisa volta ao padrão
-  return `${raiz}?view=compose&to=${encodeURIComponent(para)}&subject=${encodeURIComponent(fix(assunto))}&body=${encodeURIComponent(fix(corpo))}`;
+  const lista = v => (Array.isArray(v) ? v.join(',') : String(v || ''));
+  return `${raiz}?view=compose&to=${encodeURIComponent(lista(para))}${lista(cc) ? `&cc=${encodeURIComponent(lista(cc))}` : ''}&subject=${encodeURIComponent(fix(assunto))}&body=${encodeURIComponent(fix(corpo))}`;
+}
+
+const EMAIL = /[^\s<>;,"']+@[^\s<>;,"']+\.[^\s<>;,"']+/g;
+/**
+ * Quem recebe o aviso, a partir dos contatos da empresa no Hub (mesma regra do e-mail inicial do Hub): uma pessoa no Para (a que tem acesso a
+ * mais setores; no empate, a treinada, depois a primeira) e as outras em Cópia. A mesma pessoa uma vez só; um campo com mais de um e-mail vira
+ * uma pessoa por e-mail. contatos: [{ nome, email, setores: [...], treinado }]. Só em memória: nada é guardado.
+ */
+export function destinatarios(contatos, { maxCc = 12 } = {}) {
+  const por = new Map();
+  for (const c of contatos || []) {
+    for (const bruto of String(c && c.email || '').match(EMAIL) || []) {
+      const chave = bruto.toLowerCase();
+      const x = por.get(chave) || por.set(chave, { email: bruto, nome: '', setores: new Set(), treinado: false }).get(chave);
+      for (const st of c.setores || []) x.setores.add(st);
+      if (c.treinado) x.treinado = true;
+      if (!x.nome && c.nome) x.nome = String(c.nome);
+    }
+  }
+  const ordenada = [...por.values()].map((x, i) => ({ ...x, i, n: x.setores.size })).sort((a, b) => b.n - a.n || Number(b.treinado) - Number(a.treinado) || a.i - b.i);
+  if (!ordenada.length) return { para: '', cc: [], total: 0, cortados: 0, pessoas: [] };
+  const [p, ...resto] = ordenada;
+  return { para: p.email, cc: resto.slice(0, maxCc).map(x => x.email), total: ordenada.length, cortados: Math.max(0, resto.length - maxCc), pessoas: ordenada.map(x => ({ nome: x.nome, email: x.email, setores: [...x.setores] })) };
 }
