@@ -1,5 +1,6 @@
 import { SAMPLE } from '../src/mock.js';
-import { loadConfig, saveConfig, formatCnpj, nomeDoGrupo } from '../src/config.js';
+import { loadConfig, saveConfig, formatCnpj, nomeDoGrupo, compilePattern } from '../src/config.js';
+import { planoDeCorrecao, MOTIVOS_SEM_PROPOSTA } from '../src/corrigir-nomes.js';
 import { puxarTreinados, contatosDoHub, CHAVE_DEMANDA } from '../src/hub-treinados.js';
 import { montarAviso, linkZimbra, destinatarios } from '../src/aviso.js';
 import { analyze, checkNotificacoesOnvio, silenciadaAgora, statusEnvio, raizDoCnpj, demandaDe } from '../src/rules.js';
@@ -232,7 +233,7 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}${k === 'nomenclatura' ? correcaoNomesHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -240,6 +241,19 @@ function blockHtml(k) {
 function padraoPastasHtml() {
   const m = pastasModelo && pastasModelo.nomes && pastasModelo.nomes.length ? pastasModelo : null;
   return `<p class="note-txt" style="margin:10px 16px 14px">${m ? `Padrão = as pastas da empresa ${esc(m.empresa)} (${esc(m.codigo)}): ${esc(m.nomes.join(', '))}.` : `Padrão = a lista de pastas permitidas das Configurações (a empresa modelo ainda não foi lida): ${esc((cfg.allowedFolders || []).join(', '))}.`}</p>`;
+}
+// Correção de nomes (parte 1: só PROPÕE; escrever no Onvio vem depois de mapear a chamada de renomear). Só entra a proposta com competência CERTA.
+function correcaoNomesHtml() {
+  const linhas = data('nomenclatura'); if (!linhas.length || !real()) return '';
+  const { re } = compilePattern(cfg.filePattern); if (!re) return '';
+  const { prontas, pendentes } = planoDeCorrecao(linhas, re, source().docs || []);
+  const prev = prontas.slice(0, 40).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="col-sec">${esc(r.pasta)}</td><td>${esc(r.arquivo)}</td><td><b>${esc(r.novo)}</b> <span class="muted">· ${r.de === 'nome' ? 'competência do nome' : 'competência da pasta'}</span></td></tr>`).join('');
+  const por = {}; pendentes.forEach(x => { por[x.motivo] = (por[x.motivo] || 0) + 1; });
+  const pend = Object.entries(por).sort((a, b) => b[1] - a[1]).map(([m, n]) => `<span class="chip">${esc(MOTIVOS_SEM_PROPOSTA[m] || m)} <small>${n}</small></span>`).join('');
+  return `<div class="blk-b" style="border-top:1px solid var(--border,#e5e7eb)"><h3 class="sub-h">Correção dos nomes <span class="count">${prontas.length}</span></h3>
+    <p class="note-txt" style="margin:4px 0 8px"><b>${prontas.length}</b> ${prontas.length === 1 ? 'arquivo tem' : 'arquivos têm'} proposta com a competência certa (do nome ou da pasta). <b>${pendentes.length}</b> precisam da sua decisão: ${pend || 'nenhum'}. A extensão nunca chuta a competência.</p>
+    ${prontas.length ? `<details><summary class="btn btn-sm">Ver as propostas (${Math.min(40, prontas.length)} de ${prontas.length})</summary><div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th class="col-sec">Pasta</th><th>Nome atual</th><th>Nome proposto</th></tr></thead><tbody>${prev}</tbody></table></div></details>` : ''}
+    <p class="note-txt" style="margin:8px 0 0">Corrigir no Onvio ainda <b>não está ligado</b>: falta mapear a chamada que a tela do Onvio usa para renomear um arquivo. Veja o roteiro em Coleta do Onvio › Aprender chamadas.</p></div>`;
 }
 function resumoDiaHtml() {
   const r = resumoDoDia(hist, new Date());

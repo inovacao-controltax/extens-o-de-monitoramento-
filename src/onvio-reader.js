@@ -307,7 +307,7 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
       for (const x of filhos) {
         if (++itens > itensMax) { truncado = true; break; }
         if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
-        else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
+        else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), docId: x.id != null ? String(x.id) : '', pastaId: no.id != null ? String(no.id) : '', pastaTipo: no.tipo, data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
       }
       if (itens > itensMax) break;
     }
