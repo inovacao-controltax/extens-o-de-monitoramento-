@@ -22,7 +22,7 @@ export function checkNomenclatura(docs, cfg) {
   const { re } = compilePattern(cfg.filePattern);
   if (!re) return [];
   return docs.filter(d => d.origem === 'cliente' && !re.test(String(d.arquivo ?? '').trim()))
-    .map(d => ({ empresa: d.empresa, cnpj: d.cnpj, setor: setorDaPasta(d.pasta), pasta: d.pasta, arquivo: d.arquivo, data: d.data }));
+    .map(d => ({ empresa: d.empresa, cnpj: d.cnpj, setor: setorDaPasta(d.pasta), pasta: d.pasta, arquivo: d.arquivo, data: d.data, docId: d.docId || '', pastaId: d.pastaId || '', pastaTipo: d.pastaTipo || '' }));
 }
 
 /** Empresas com pasta de primeiro nível fora da lista permitida (uma linha por empresa e pasta). */
