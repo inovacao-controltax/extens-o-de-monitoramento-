@@ -72,7 +72,7 @@ export async function renderConfig(root, { toast, onSaved }) {
     <section class="card wide"><h2>Clientes treinados <span class="count" id="tcount"></span></h2>
       <div class="field"><label for="paste">Colar da planilha</label>
         <textarea id="paste" rows="4" class="num" placeholder="Empresa;CNPJ;Treinado em;Demanda&#10;Alfa Ltda;11.222.333/0001-81;01/09/2026;Pessoal, Fiscal"></textarea>
-        <span class="hint">Colunas: empresa, CNPJ, treinado em (dd/mm/aaaa) e demanda (Pessoal, Fiscal, Contábil, Financeiro). Separe por ponto e vírgula ou cole direto do Excel. Também aceita o JSON do Hub ({ empresas, contatos }): entram as empresas com treinamento concluído ou em andamento.</span></div>
+        <span class="hint">Colunas: empresa, CNPJ, treinado em (dd/mm/aaaa) e demanda (Pessoal, Fiscal, Contábil). Separe por ponto e vírgula ou cole direto do Excel. Também aceita o JSON do Hub ({ empresas, contatos }): entram as empresas com treinamento concluído ou em andamento.</span></div>
       <div class="row"><button class="btn" id="import" type="button">Importar lista</button><button class="btn btn-ghost" id="clearT" type="button">Remover todos</button></div>
       <ul class="errs" id="errs"></ul><div id="ttable"></div></section>
   </div>`;

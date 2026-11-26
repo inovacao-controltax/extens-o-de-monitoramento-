@@ -1,5 +1,5 @@
 import { criarFetcher, abaOnvio, pausa } from '../src/onvio-tab.js';
-import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, diagnosticarNotificacoes, lerNotificacoesEscritorio, textoRelatorioNotificacoes, AuthError } from '../src/onvio-reader.js';
+import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamadas, diagnosticarNotificacoes, lerNotificacoesEscritorio, idsDaEquipe, diagnosticarAutoria, textoRelatorioAutoria, textoRelatorioNotificacoes, AuthError } from '../src/onvio-reader.js';
 import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS } from '../src/config.js';
 import { loadSnapshot, saveSnapshot, clearSnapshot, loadSnapshotCompleto, duracaoDe } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
@@ -18,7 +18,7 @@ export async function renderColeta(root, { toast, onChanged }) {
       <div class="field" id="f-lim"><label for="lim">Empresas nesta coleta</label>
         <input id="lim" class="num" type="number" min="0" value="20" inputmode="numeric"><span class="hint">0 = todas as empresas ativas (pode levar vários minutos). Comece com poucas para conferir.</span></div>
       <label class="chk"><input type="checkbox" id="auto"> Ler o Onvio sozinho, em segundo plano, quando os dados têm mais de 6 h (sem precisar clicar)</label>
-      <div class="row"><button class="btn" id="testar" type="button">Testar leitura</button><button class="btn btn-primary" id="coletar" type="button">Coletar agora</button><button class="btn btn-ghost" id="parar" type="button" hidden>Parar</button></div>
+      <div class="row"><button class="btn" id="testar" type="button">Testar leitura</button><button class="btn" id="autoria" type="button" title="Mostra, numa amostra de empresas, quem a extensão acha que enviou cada arquivo (cliente ou escritório) e se isso bate com a lista de funcionários">Conferir autoria</button><button class="btn btn-primary" id="coletar" type="button">Coletar agora</button><button class="btn btn-ghost" id="parar" type="button" hidden>Parar</button></div>
       <div id="prog" hidden><progress id="bar" max="1" value="0"></progress><span id="progtxt" class="note-txt"></span></div></section>
     <section class="card"><h2>Dados coletados</h2><div id="dados"></div></section>
     <section class="card"><h2>Notificações do escritório (Onvio)</h2>
@@ -60,7 +60,7 @@ export async function renderColeta(root, { toast, onChanged }) {
     $('#dados').innerHTML = `<p class="note-txt">Última coleta: <b>${new Date(s.coletadoEm).toLocaleString('pt-BR')}</b>${s.parcial ? ' <span class="badge s-warn">Parcial</span>' : ''}</p>
       <ul class="kv"><li><span>Empresas lidas</span><b class="num">${q.lidas ?? 0} de ${q.empresas ?? 0}</b></li><li><span>Arquivos</span><b class="num">${q.docs ?? 0}</b></li>
       <li><span>Empresas sem CNPJ</span><b class="num">${q.semCnpj ?? 0}</b></li><li><span>Sem projeto no portal</span><b class="num">${q.semProjeto ?? 0}</b></li>
-      <li><span>Falhas de leitura</span><b class="num">${q.falhas ?? 0}</b></li><li><span>Autor do arquivo não identificado</span><b class="num">${q.origemIndefinida ?? 0}</b></li></ul>
+      <li><span>Falhas de leitura</span><b class="num">${q.falhas ?? 0}</b></li><li><span>Autor do arquivo não identificado</span><b class="num">${q.origemIndefinida ?? 0}</b></li><li><span>Cliente ou escritório, decidido por</span><b>${q.autores && q.autores.metodo === 'equipe' ? 'lista de funcionários (exato)' : q.autores ? 'dedução (use Conferir autoria)' : '—'}</b></li></ul>
       ${desempenhoHtml(await loadSnapshotCompleto())}
       <button class="btn btn-ghost btn-sm" id="apagar" type="button">Apagar dados coletados</button>`;
     $('#apagar').addEventListener('click', async () => {
@@ -138,6 +138,21 @@ export async function renderColeta(root, { toast, onChanged }) {
   $('#verObsO').addEventListener('click', () => mostrarObservadas('monitor-onvio-observadas', 'ONVIO'));
   { const c0 = await loadConfig(); $('#notifPadrao').checked = !!c0.notifPadraoDesligado;
     $('#notifPadrao').addEventListener('change', async e => { const c = await loadConfig(); c.notifPadraoDesligado = e.target.checked; const r = await saveConfig(c); toast(r.ok ? 'Salvo: a lista de notificações já considera isso' : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); }); }
+  // Conferir autoria: numa amostra (treinadas primeiro), compara a decisão cliente/escritório pela lista de funcionários com a dedução.
+  $('#autoria').addEventListener('click', async () => {
+    $('#autoria').disabled = true; $('#rel').textContent = 'Conferindo a autoria numa amostra de empresas…'; $('#copiar').disabled = true;
+    try {
+      const f = await criarFetcher(), cfgA = await loadConfig();
+      const guardado = (await chrome.storage.local.get('monitor-clientes'))['monitor-clientes'];
+      const clientes = guardado && guardado.clientes && guardado.clientes.length ? guardado.clientes : (await listarClientes(f, { pausa })).clientes;
+      const equipeIds = await idsDaEquipe(f).catch(e => { if (e instanceof AuthError) throw e; return null; });
+      const prioridade = new Set((cfgA.trained || []).flatMap(t => [t.cnpj, String(t.cnpj).slice(0, 8)]));
+      const rep = await diagnosticarAutoria(f, clientes, { amostra: 12, prioridade, equipeIds, conhecidas: cfgA.allowedFolders, descer: DEPARTAMENTOS_LIDOS, pausa });
+      $('#rel').textContent = textoRelatorioAutoria(rep); $('#copiar').disabled = false;
+      toast(rep.vinculo ? 'Autoria exata: bate com a lista de funcionários' : 'Autoria por dedução: veja o relatório', rep.vinculo ? 'ok' : 'warn');
+    } catch (e) { const m = e instanceof AuthError ? e.message : `Erro na leitura: ${e.message}`; $('#rel').textContent = m; toast(m, 'warn'); }
+    finally { $('#autoria').disabled = false; }
+  });
   $('#testarN').addEventListener('click', async () => {
     $('#testarN').disabled = true; $('#rel').textContent = 'Lendo as notificações da equipe do escritório…'; $('#copiar').disabled = true;
     try {

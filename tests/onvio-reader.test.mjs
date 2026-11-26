@@ -169,7 +169,7 @@ test('autoria: quem envia para muitas empresas é do escritório; poucas, client
   const docs = [...['1', '2', '3', '4'].map(c => dd('staff-A', c)), dd('cli-1', '1'), dd('cli-1', '1'), dd('cli-2', '2'), dd('', '3'), dd('x', '4', { arquivo: '' })];
   const r = classificarAutores(docs);
   assert.deepEqual(docs.map(d => d.origem), ['escritorio', 'escritorio', 'escritorio', 'escritorio', 'cliente', 'cliente', 'cliente', 'indefinida', 'indefinida']);
-  assert.deepEqual(r, { distintos: 4, escritorio: 1, clientes: 3, minEmpresas: 3 });
+  assert.deepEqual(r, { distintos: 4, escritorio: 1, clientes: 3, minEmpresas: 3, metodo: 'heuristica', naEquipe: 0 });
   assert.ok(docs.every(d => !('autor' in d) && !('eu' in d)));
 });
 test('autoria: o usuário logado é sempre do escritório, mesmo em uma empresa só', () => {
@@ -549,4 +549,55 @@ test('limitado: estatísticas contam chamadas e recusas', async () => {
   await Promise.all([f('a').catch(() => {}), f('b').catch(() => {}), f('c'), f('d')]);
   const e = f.estatisticas();
   assert.equal(e.recuos, 2); assert.equal(e.chamadas, 2);
+});
+
+// ---- Autoria confiável (0.17.0) ----
+import { idsDaEquipe, normGuid } from '../src/onvio-reader.js';
+const GA = 'a1b2c3d4-0000-4000-8000-000000000001', GB = 'a1b2c3d4-0000-4000-8000-000000000002', GC = 'a1b2c3d4-0000-4000-8000-000000000003';
+test('autoria exata: quem está na lista de funcionários é escritório e os demais são clientes, mesmo enviando para muitas filiais', () => {
+  const filiais = Array.from({ length: 8 }, (_, i) => `25.096.492/${String(i + 1).padStart(4, '0')}-9${i}`);
+  const docs = [...filiais.map(c => dd(GC, c)), dd(GA, '11.222.333/0001-81'), dd(GB, filiais[0])];   // GC: cliente de um grupo com 8 filiais; GA: funcionário (só 1 empresa)
+  const r = classificarAutores(docs, { equipeIds: new Set([normGuid(GA)]) });
+  assert.deepEqual(docs.map(d => d.origem), [...filiais.map(() => 'cliente'), 'escritorio', 'cliente']);
+  assert.equal(r.metodo, 'equipe'); assert.equal(r.naEquipe, 1);
+});
+test('autoria por heurística: matriz e filiais contam como UMA empresa (o cliente de um grupo não vira escritório)', () => {
+  const filiais = Array.from({ length: 8 }, (_, i) => `25.096.492/${String(i + 1).padStart(4, '0')}-9${i}`);
+  const docs = [...filiais.map(c => dd(GC, c)), ...['11.222.333/0001-81', '45.723.174/0001-10', '11.444.777/0001-61'].map(c => dd(GA, c))];
+  const r = classificarAutores(docs, {});
+  assert.deepEqual(docs.slice(0, 8).map(d => d.origem), Array(8).fill('cliente'));       // 8 filiais = 1 grupo
+  assert.deepEqual(docs.slice(8).map(d => d.origem), ['escritorio', 'escritorio', 'escritorio']);   // 3 grupos diferentes
+  assert.equal(r.metodo, 'heuristica');
+});
+test('autoria: sem nenhum autor na lista de funcionários, a lista não vale (cai na heurística)', () => {
+  const docs = ['1', '2', '3', '4'].map(c => dd(GA, c));
+  const r = classificarAutores(docs, { equipeIds: new Set([normGuid(GB)]) });
+  assert.equal(r.metodo, 'heuristica'); assert.equal(docs[0].origem, 'escritorio');
+});
+test('ids da equipe: pega todo identificador (GUID) do funcionário, com ou sem traços, sem guardar nada', async () => {
+  const f = async url => ({ items: [{ id: GA, contactId: 'ffffffff-0000-4000-8000-00000000000a', name: 'Fulana', email: 'x@y.com', extra: { userGuid: GB.replace(/-/g, '').toUpperCase() } }], totalItems: 1, totalPages: 1 });
+  const ids = await idsDaEquipe(f);
+  assert.deepEqual([...ids].sort(), [normGuid(GA), normGuid(GB), 'ffffffff000040008000' + '00000000000a'].sort());
+  assert.ok(![...ids].some(x => /@|fulana/i.test(x)));
+});
+
+test('conferir autoria: compara a lista de funcionários com a dedução, por empresa e no total', async () => {
+  const { diagnosticarAutoria, textoRelatorioAutoria } = await import('../src/onvio-reader.js');
+  const GRUPO = Array.from({ length: 8 }, (_, i) => `25.096.492/${String(i + 1).padStart(4, '0')}-9${i}`);
+  const api = async url => {
+    const u = new URL(url), p = u.pathname.slice(5);
+    if (/^storage\/v1\/projects$/.test(p)) { const c = u.searchParams.get('primaryAssociationId'); return { items: [{ id: 'P' + c, name: 'Fiscal' }] }; }
+    if ((p.match(/^storage\/v2\/Projects\/P(\d+)\/children$/))) { const c = Number(/P(\d+)/.exec(p)[1]); const autor = c <= 8 ? GC : GA; return { items: [{ id: 'd' + c, name: 'a.pdf', itemType: 'Document', createdDate: '2026-11-01T10:00:00Z', createdBy: { userGuid: autor } }, { id: 'e' + c, name: 'b.pdf', itemType: 'Document', createdDate: '2026-11-02T10:00:00Z', createdBy: { userGuid: GA } }] }; }
+    return { items: [] };
+  };
+  const cl = [...GRUPO, '11.222.333/0001-81', '45.723.174/0001-10', '11.444.777/0001-61'].map((cnpj, i) => ({ ids: [String(i + 1)], codigo: String(i + 1), nome: 'E' + (i + 1), cnpj, inativo: false }));
+  const r = await diagnosticarAutoria(guardar(api), cl, { amostra: 11, equipeIds: new Set([normGuid(GA)]), conhecidas: ['Fiscal'], descer: ['Fiscal'] });
+  assert.equal(r.vinculo, true); assert.equal(r.autoresNaEquipe, 1); assert.equal(r.empresasLidas, 11);
+  assert.equal(r.porEquipe.escritorio, 14); assert.equal(r.porEquipe.cliente, 8);                    // GA em todas (escritório); GC só nas 8 filiais do grupo (cliente)
+  assert.equal(r.porHeuristica.cliente + r.porHeuristica.escritorio, 22);
+  assert.equal(r.porEmpresa.length, 11);
+  const t = textoRelatorioAutoria(r);
+  assert.match(t, /BATE com a lista de funcionários/); assert.doesNotMatch(t, /a1b2c3d4/);          // nenhum identificador no relatório
+  const sem = await diagnosticarAutoria(guardar(api), cl, { amostra: 3, equipeIds: new Set(), conhecidas: ['Fiscal'], descer: ['Fiscal'] });
+  assert.equal(sem.vinculo, false); assert.match(textoRelatorioAutoria(sem), /ATENÇÃO/);
 });

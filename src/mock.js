@@ -16,13 +16,13 @@ export const SAMPLE = {
     D('Gama SA', '33333333000133', 'Docs Diversos', '10-2026 Aditivo.pdf', 45),
     D('Gama SA', '33333333000133', 'Docs Diversos', 'procuracao.pdf', 60),
     D('Épsilon EIRELI', '55555555000155', 'NOVA PASTA', '11-2026 Extrato.pdf', 4),
-    D('Zeta Comércio', '66666666000166', 'Financeiro/2026/10', '10-2026 Extrato.pdf', 33),
+    D('Zeta Comércio', '66666666000166', 'Contabilidade/2026/10', '10-2026 Extrato.pdf', 33),
   ],
   trained: [
     { empresa: 'Alfa Ltda', cnpj: '11111111000111', treinadoEm: ago(85), demanda: ['Fiscal'] },
     { empresa: 'Delta Ltda', cnpj: '44444444000144', treinadoEm: ago(80), demanda: ['Pessoal', 'Contábil'] },
     { empresa: 'Gama SA', cnpj: '33333333000133', treinadoEm: ago(70), demanda: ['Fiscal'] },
-    { empresa: 'Zeta Comércio', cnpj: '66666666000166', treinadoEm: ago(50), demanda: ['Financeiro'] },
+    { empresa: 'Zeta Comércio', cnpj: '66666666000166', treinadoEm: ago(50), demanda: ['Contábil'] },
     { empresa: 'Eta Serviços', cnpj: '77777777000177', treinadoEm: ago(10), demanda: ['Pessoal'] },
   ],
   notif: { fonte: 'exemplo', total: 4, itens: [
@@ -35,7 +35,7 @@ export const SAMPLE = {
     { nome: 'Maria Souza', setor: 'Pessoal', email: 'maria@exemplo.com', notificaTarefa: false, tarefasAtivas: 12 },
     { nome: 'Carlos Lima', setor: 'Fiscal', email: 'carlos@exemplo.com', notificaTarefa: false, tarefasAtivas: 7 },
     { nome: 'João Alves', setor: 'Contábil', email: 'joao@exemplo.com', notificaTarefa: true, tarefasAtivas: 8 },
-    { nome: 'Ana Reis', setor: 'Financeiro', email: 'ana@exemplo.com', notificaTarefa: false, tarefasAtivas: 0 },
+    { nome: 'Ana Reis', setor: 'Contábil', email: 'ana@exemplo.com', notificaTarefa: false, tarefasAtivas: 0 },
   ],
   recados: [
     { id: 'r1', titulo: 'Padrão de nome ainda é um exemplo', texto: 'As verificações já usam o padrão salvo em Configurações. Troque o exemplo pelo padrão oficial da ControlTax.' },

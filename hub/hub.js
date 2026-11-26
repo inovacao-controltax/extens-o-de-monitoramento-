@@ -37,7 +37,7 @@ $('cfgBtn').innerHTML = I.gear;
 const secClass = s => ({ 'Pessoal': 'sec-pessoal', 'Contábil': 'sec-contabil', 'Fiscal': 'sec-fiscal', 'Financeiro': 'sec-financeiro' }[s] || 'sec-outro');
 const sector = s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`;
 const badge = (t, c) => `<span class="badge ${c}">${esc(t)}</span>`;
-const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil', 'Financeiro'];
+const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil'];
 
 const TABS = {
   nomenclatura: { label: 'Nomenclatura', icon: I.file, sev: 's-warn', title: 'Arquivos com nome fora do padrão',
