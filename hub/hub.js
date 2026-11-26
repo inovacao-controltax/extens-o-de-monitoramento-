@@ -243,7 +243,7 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() : ''}${k === 'pastas' ? excluirPastasHtml() : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -343,6 +343,34 @@ async function enviarParaLixeiraAgora(botao, nome, conteudo = false) {      // n
   toast(`${r.feitos.length} pasta${r.feitos.length === 1 ? '' : 's'} enviada${r.feitos.length === 1 ? '' : 's'} para a lixeira.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ` Confira no Onvio: ${itens[0].empresa}, a pasta "${itens[0].pasta}" deve estar na lixeira. Se estiver certo, clique de novo para as demais.` : ''}`, r.feitos.length ? 'ok' : 'warn');
   recompute(); render(false);
 }
+// ---- Histórico do que a extensão corrigiu no Onvio (nomes de arquivo e pastas enviadas para a lixeira), do mais novo para o mais antigo ----
+function linhasHistorico(tipo) {
+  const rodadas = (tipo === 'nomes' ? correcoes : correcoesPastas).rodadas || [], out = [];
+  for (const r of rodadas.slice().reverse()) for (const f of (r.feitos || []).slice().reverse()) {
+    out.push(tipo === 'nomes'
+      ? { em: r.em, empresa: f.empresa, cnpj: f.cnpj, pasta: f.pasta || '', antes: f.de, depois: f.para, desfeita: !!r.desfeita }
+      : { em: r.em, empresa: f.empresa, cnpj: f.cnpj, pasta: f.nome, antes: f.nome, depois: r.comConteudo ? 'lixeira (com conteúdo)' : 'lixeira (vazia)', desfeita: false });
+  }
+  return out;
+}
+const dataHora = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function historicoCorrecoesHtml(tipo) {
+  const l = linhasHistorico(tipo); if (!l.length) return '';
+  const nomes = tipo === 'nomes', lim = 100;
+  const linhas = l.slice(0, lim).map(x => `<tr${x.desfeita ? ' style="opacity:.7"' : ''}><td class="num" style="white-space:nowrap">${esc(dataHora(x.em))}</td><td>${esc(x.empresa)}</td>${nomes ? `<td class="col-sec">${esc(x.pasta || '—')}</td><td>${esc(x.antes)}</td><td><b>${esc(x.depois)}</b>${x.desfeita ? ' <span class="badge s-warn">desfeita</span>' : ''}</td>` : `<td>${esc(x.pasta)}</td><td>${esc(x.depois)}</td>`}</tr>`).join('');
+  const cab = nomes ? '<th>Quando</th><th>Empresa</th><th class="col-sec">Pasta</th><th>Nome antes</th><th>Nome depois</th>' : '<th>Quando</th><th>Empresa</th><th>Pasta</th><th>Destino</th>';
+  return `<div class="pl-bar"><div><span class="pl-t">${nomes ? 'Nomes corrigidos' : 'Pastas enviadas para a lixeira'}</span><span class="muted"> · ${l.length} no histórico</span></div><button type="button" class="btn btn-sm" data-hist-csv="${tipo}">Baixar CSV</button></div>
+    <div class="pl-corpo"><details><summary class="pl-mais" style="cursor:pointer;color:var(--ink-2);padding:6px 0">Ver o histórico${l.length > lim ? ` (as ${lim} mais recentes; o CSV tem todas)` : ''}</summary><div class="tbl-wrap"><table class="pl-tab"><thead><tr>${cab}</tr></thead><tbody>${linhas}</tbody></table></div></details></div>`;
+}
+function baixarHistoricoCsv(tipo) {
+  const l = linhasHistorico(tipo), nomes = tipo === 'nomes'; if (!l.length) return toast('Nada no histórico ainda', 'warn');
+  const linhas = [nomes ? ['Quando', 'Empresa', 'CNPJ', 'Pasta', 'Nome antes', 'Nome depois', 'Desfeita'] : ['Quando', 'Empresa', 'CNPJ', 'Pasta', 'Destino']];
+  l.forEach(x => linhas.push(nomes ? [dataHora(x.em), x.empresa, formatCnpj(x.cnpj), x.pasta, x.antes, x.depois, x.desfeita ? 'sim' : ''] : [dataHora(x.em), x.empresa, formatCnpj(x.cnpj), x.pasta, x.depois]));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([paraCsv(linhas)], { type: 'text/csv;charset=utf-8' }));
+  a.download = `${nomes ? 'nomes-corrigidos' : 'pastas-na-lixeira'}-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(`${l.length} linhas exportadas`);
+}
 function correcaoNomesHtml() {
   const linhas = data('nomenclatura'); if (!linhas.length || !real()) return '';
   const { re } = compilePattern(cfg.filePattern); if (!re) return '';
@@ -432,6 +460,7 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-lixeira]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeira)));
+  v.querySelectorAll('[data-hist-csv]').forEach(e => e.addEventListener('click', () => baixarHistoricoCsv(e.dataset.histCsv)));
   v.querySelectorAll('[data-lixeira-conteudo]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeiraConteudo, true)));
   v.querySelectorAll('[data-lixeira-todas]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, null)));
   v.querySelectorAll('[data-corrigir-nomes]').forEach(e => e.addEventListener('click', () => corrigirNomesAgora(e)));
