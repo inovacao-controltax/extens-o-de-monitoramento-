@@ -601,3 +601,18 @@ test('conferir autoria: compara a lista de funcionários com a dedução, por em
   const sem = await diagnosticarAutoria(guardar(api), cl, { amostra: 3, equipeIds: new Set(), conhecidas: ['Fiscal'], descer: ['Fiscal'] });
   assert.equal(sem.vinculo, false); assert.match(textoRelatorioAutoria(sem), /ATENÇÃO/);
 });
+
+import { pastasDoModelo } from '../src/onvio-reader.js';
+import { checkPastas } from '../src/rules.js';
+test('pastas do padrão: lidas da empresa modelo (9999) e usadas no lugar da lista das configurações', async () => {
+  const clientes = [{ codigo: '1', nome: 'Alfa', ids: ['a'] }, { codigo: '9999', nome: 'EMPRESA EXEMPLO SIMPLES NACIONAL LTDA', ids: ['x', 'y'] }];
+  const vistas = [];
+  const f = async url => { vistas.push(url); return url.includes('=x&') ? [] : [{ id: 1, name: 'Pessoal' }, { id: 2, name: 'Fiscal' }, { id: 3, name: 'Pessoal' }]; };
+  const r = await pastasDoModelo(f, clientes);
+  assert.deepEqual(r, { ok: true, empresa: 'EMPRESA EXEMPLO SIMPLES NACIONAL LTDA', codigo: '9999', nomes: ['Pessoal', 'Fiscal'] });
+  assert.equal((await pastasDoModelo(f, [{ codigo: '1', nome: 'A', ids: ['a'] }])).motivo, 'nao-achou');
+  const docs = [{ empresa: 'A', cnpj: '1', pasta: 'Pessoal/2026', arquivo: 'a.pdf' }, { empresa: 'A', cnpj: '1', pasta: 'Contábil/2026', arquivo: 'b.pdf' }, { empresa: 'B', cnpj: '2', pasta: 'Cobrança', arquivo: 'c.pdf' }];
+  const cfg = { allowedFolders: ['Pessoal', 'Contábil'] };
+  assert.deepEqual(checkPastas(docs, cfg).map(x => x.pasta), ['Cobrança']);                                    // sem modelo: a lista das configurações
+  assert.deepEqual(checkPastas(docs, cfg, r.nomes).map(x => x.pasta).sort(), ['Contábil', 'Cobrança'].sort());  // com modelo: só as pastas dele
+});

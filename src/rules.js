@@ -26,8 +26,9 @@ export function checkNomenclatura(docs, cfg) {
 }
 
 /** Empresas com pasta de primeiro nível fora da lista permitida (uma linha por empresa e pasta). */
-export function checkPastas(docs, cfg) {
-  const ok = new Set(cfg.allowedFolders.map(norm));
+export function checkPastas(docs, cfg, modelo = null) {
+  // o padrão são as pastas da empresa modelo (9999) quando já foram lidas; senão, a lista das configurações
+  const ok = new Set((Array.isArray(modelo) && modelo.length ? modelo : cfg.allowedFolders).map(norm));
   const grupos = new Map();
   for (const d of docs) {
     const top = topFolder(d.pasta);
@@ -120,7 +121,7 @@ export function analyze(snapshot, cfg, now = new Date()) {
   const trained = cfg.trained?.length ? cfg.trained : (snapshot.trained || []);
   return {
     nomenclatura: checkNomenclatura(docs, cfg),
-    pastas: checkPastas(docs, cfg),
+    pastas: checkPastas(docs, cfg, snapshot.pastasModelo),
     semEnvio: checkSemEnvio(docs, trained, cfg, now, snapshot.solic, snapshot.demanda).filter(r => !(cfg.silenciadas || []).some(x => x.cnpj === r.cnpj && silenciadaAgora(x, now))),
     notificacoes: snapshot.notif ? checkNotificacoesOnvio(snapshot.notif, cfg) : checkNotificacoes(snapshot.users || []),
   };

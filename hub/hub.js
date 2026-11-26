@@ -67,12 +67,13 @@ const TABS = {
 };
 const KEYS = Object.keys(TABS);
 
+let pastasModelo = null;     // { em, codigo, empresa, nomes }: as pastas da empresa modelo (9999), que são o padrão
 let demandaHub = null;      // { em, mapa: { raiz: [setores com demanda] } } puxado do Hub (Hub 436)
 let cfg = null, snap = null, gsnap = null, nsnap = null, nestado = null, ssnap = null, hist = null, snapCompleto = null, snapEst = null, gestado = null, andamento = null, R = { nomenclatura: [], pastas: [], semEnvio: [], notificacoes: [] };
 const VELHO_H = 6, LIM = 200;   // linhas por tabela de cada vez (a leitura pode trazer milhares)
 const real = () => snapEst;      // a coleta estável: a terminada ou, enquanto a nova é lida, a última completa (os números não sobem e descem)
 const lendoSemDados = () => !real() && !!andamento && andamento.estado === 'rodando';   // lendo, ainda sem nenhuma empresa: nunca mostrar os números de exemplo
-const source = () => (real() ? { docs: real().docs, notif: nsnap, solic: ssnap && ssnap.porCnpj, demanda: demandaHub && demandaHub.mapa, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
+const source = () => (real() ? { docs: real().docs, notif: nsnap, solic: ssnap && ssnap.porCnpj, demanda: demandaHub && demandaHub.mapa, pastasModelo: pastasModelo && pastasModelo.nomes, users: (gsnap && gsnap.users) || [], trained: [] } : gsnap ? { docs: [], users: gsnap.users, trained: [] } : lendoSemDados() ? { docs: [], users: [], trained: [] } : SAMPLE);   // Gestta (usuários) entra na Fase 5
 const recompute = () => { snapEst = snapshotEstavel(snap, snapCompleto); R = analyze(source(), cfg); if (nsnap) R.notificacoes = checkNotificacoesOnvio(nsnap, cfg); marcarIcone(); };   // notificações lidas do Onvio valem mesmo sem a coleta das empresas
 // Número de pendências no ícone da extensão (só com dados reais)
 function marcarIcone() {
@@ -231,10 +232,15 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
+// De onde vem o padrão de pastas: as da empresa modelo (9999), quando já foram lidas; senão, a lista das configurações.
+function padraoPastasHtml() {
+  const m = pastasModelo && pastasModelo.nomes && pastasModelo.nomes.length ? pastasModelo : null;
+  return `<p class="note-txt" style="margin:10px 16px 14px">${m ? `Padrão = as pastas da empresa ${esc(m.empresa)} (${esc(m.codigo)}): ${esc(m.nomes.join(', '))}.` : `Padrão = a lista de pastas permitidas das Configurações (a empresa modelo ainda não foi lida): ${esc((cfg.allowedFolders || []).join(', '))}.`}</p>`;
+}
 function resumoDiaHtml() {
   const r = resumoDoDia(hist, new Date());
   if (!hist || !(hist.serie || []).length) return '';
@@ -455,6 +461,7 @@ try {
     if (ch['monitor-notificacoes-estado']) { nestado = ch['monitor-notificacoes-estado'].newValue || null; recompute(); renderSuave(); }
     if (ch[CHAVE_HIST]) { hist = ch[CHAVE_HIST].newValue || null; sino(); }
     if (ch['monitor-config']) loadConfig().then(c => { cfg = c; recompute(); renderNav(); renderSuave(); });      // a lista de treinados puxada sozinha em segundo plano aparece sem recarregar
+    if (ch['monitor-pastas-modelo']) { pastasModelo = ch['monitor-pastas-modelo'].newValue || null; recompute(); renderSuave(); }
     if (ch[CHAVE_DEMANDA]) { demandaHub = ch[CHAVE_DEMANDA].newValue || null; recompute(); renderSuave(); }
     if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
@@ -465,6 +472,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, CHAVE_HIST]).then(r => { demandaHub = r[CHAVE_DEMANDA] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', CHAVE_HIST]).then(r => { demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
