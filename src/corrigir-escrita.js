@@ -61,7 +61,7 @@ export async function corrigirNomes(itens, { ler, escrever, padrao, parar, onPro
       if (String(d.name) !== String(it.arquivo) || (d.containerId != null && String(d.containerId) !== String(it.pastaId))) { falha('mudou'); continue; }
     } catch (e) { falha('mudou'); continue; }
     const r = await escrever(pedido);
-    if (r && r.status >= 200 && r.status < 300) { feitos.push({ docId: it.docId, pastaId: it.pastaId, empresa: it.empresa, cnpj: it.cnpj, de: it.arquivo, para: it.novo }); seguidos = 0; }
+    if (r && r.status >= 200 && r.status < 300) { feitos.push({ docId: it.docId, pastaId: it.pastaId, empresa: it.empresa, cnpj: it.cnpj, pasta: it.pasta || '', de: it.arquivo, para: it.novo }); seguidos = 0; }
     else if (r && (r.status === 401 || r.status === 403)) { falha('sem-permissao'); parou = 'sem-permissao'; break; }
     else { falha('recusado'); if (++seguidos >= 3) { parou = 'erros'; break; } }
     if (onProgresso) onProgresso({ feito: n, total: itens.length, ok: feitos.length });
@@ -72,6 +72,6 @@ export async function corrigirNomes(itens, { ler, escrever, padrao, parar, onPro
 
 /** Desfaz uma rodada: volta cada nome antigo, só se o arquivo ainda tem o nome novo. Mesmas travas. */
 export async function desfazerNomes(feitos, opcoes = {}) {
-  const itens = feitos.slice().reverse().map(f => ({ docId: f.docId, pastaId: f.pastaId, pastaTipo: 'Folders', arquivo: f.para, novo: f.de, empresa: f.empresa, cnpj: f.cnpj }));
+  const itens = feitos.slice().reverse().map(f => ({ docId: f.docId, pastaId: f.pastaId, pastaTipo: 'Folders', arquivo: f.para, novo: f.de, empresa: f.empresa, cnpj: f.cnpj, pasta: f.pasta }));
   return corrigirNomes(itens, { ...opcoes, padrao: { test: () => true } });       // voltar ao nome antigo não precisa passar no padrão (o antigo estava fora dele)
 }
