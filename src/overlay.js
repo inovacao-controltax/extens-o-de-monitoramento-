@@ -67,16 +67,23 @@
   // Depois de a extensão ser atualizada ou recarregada com esta página aberta, este script fica "órfão": o endereço do painel deixa de existir
   // e o Chrome mostra "Este arquivo pode ter sido movido, editado ou excluído". Em vez disso, avisa e oferece recarregar a página.
   const vivo = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } };
-  // "Ver no portal" das notificações: o Onvio não informa o endereço da tela de notificações do escritório; a extensão aprende quando a pessoa
-  // abre essa tela (guarda só o endereço, sem o identificador de um funcionário). Confere a cada 2 s porque o Onvio troca de tela sem recarregar.
-  let ultimaUrl = '';
-  const aprenderUrl = () => {
-    if (!vivo() || location.href === ultimaUrl) return; ultimaUrl = location.href;
-    if (!/notifica/i.test(location.href)) return;
-    const limpa = location.href.replace(/\/[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}(?=[/?#]|$)/gi, '').replace(/\/[0-9a-f]{24,32}(?=[/?#]|$)/gi, '');
-    try { chrome.storage.local.set({ 'monitor-url-notif': limpa }); } catch (e) { /* extensão atualizada: a página antiga não grava */ }
-  };
-  aprenderUrl(); setInterval(aprenderUrl, 2000);
+  // "Ver no portal" das notificações: o Onvio não informa o endereço da tela de notificações dos usuários do escritório. A extensão aprende
+  // pelo pedido que SÓ essa tela faz ao abrir um funcionário: a configuração do BOX-e dele (boxe/v1/contact-notifications/{contato}; a extensão
+  // nunca faz esse pedido). Vê só o ENDEREÇO dos recursos que a própria página carregou (Resource Timing), nunca o conteúdo nem a resposta.
+  // Guarda o endereço da tela sem identificadores e, se o endereço tiver o contato aberto, um modelo que abre direto a tela de cada funcionário.
+  // (0.37.4: antes aprendia por "notifica" no endereço, que podia pegar outra tela do Onvio; a chave antiga é deixada de lado.)
+  const semIds = h => h.replace(/\/[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}(?=[/?#]|$)/gi, '').replace(/\/[0-9a-f]{24,32}(?=[/?#]|$)/gi, '');
+  const RX_BOXE = /\/api\/boxe\/v1\/contact-notifications\/([0-9a-z-]{6,64})(?=[/?#]|$)/i;
+  let ultimoBoxe = '';
+  function aprenderNotif(recurso) {
+    const m = RX_BOXE.exec(recurso || ''); if (!m || !vivo() || NO_GESTTA) return;
+    const contato = m[1].toLowerCase(), href = location.href, chave = contato + '|' + href;
+    if (chave === ultimoBoxe) return; ultimoBoxe = chave;
+    const pos = href.toLowerCase().indexOf(contato);
+    const pessoa = pos >= 0 ? href.slice(0, pos) + '{contato}' + href.slice(pos + contato.length) : '';
+    try { chrome.storage.local.set({ 'monitor-url-notif2': { url: semIds(href), pessoa, em: Date.now() } }); } catch (e) { /* extensão atualizada: a página antiga não grava */ }
+  }
+  try { new PerformanceObserver(l => { for (const e of l.getEntries()) aprenderNotif(e.name); }).observe({ type: 'resource', buffered: true }); } catch (e) { /* navegador sem Resource Timing */ }
   function avisarOrfao() {
     root.getElementById('avt').textContent = 'A extensão foi atualizada e esta página ainda usa a versão antiga. Recarregue a página para abrir o painel.';
     av.hidden = false; v.hidden = false; b.hidden = true;
