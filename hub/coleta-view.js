@@ -175,5 +175,16 @@ export async function renderColeta(root, { toast, onChanged }) {
   });
   await abaG(); await dadosG();
   try { chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && (ch['monitor-gestta'] || ch['monitor-gestta-estado'])) dadosG(); }); } catch (e) { /* nada */ }
+  // Os dados do Onvio (e o Desempenho) acompanham a leitura: antes a tela ficava com o que havia quando foi aberta (ex.: "Parcial, 623 de 1056"
+  // com a leitura já terminada). No máximo um redesenho por segundo; o ouvinte sai sozinho quando a tela da Coleta é fechada.
+  try {
+    let t = null;
+    const ouvir = (ch, area) => {
+      if (!root.isConnected) { chrome.storage.onChanged.removeListener(ouvir); return; }
+      if (area !== 'local' || !(ch['monitor-snapshot'] || ch['monitor-snapshot-completo'])) return;
+      clearTimeout(t); t = setTimeout(() => { if (root.isConnected) dados(); }, 1000);
+    };
+    chrome.storage.onChanged.addListener(ouvir);
+  } catch (e) { /* fora da extensão */ }
   await aba(); await dados();
 }
