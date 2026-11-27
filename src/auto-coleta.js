@@ -68,7 +68,7 @@ async function leituraCompleta(cfg, avisa) {
     onParcial: async p => { await saveSnapshot(montar(p, true)); } });
   const final = montar(r, !!r.qualidade.interrompida);
   const ms = Date.now() - t0, e = lim.estatisticas();
-  final.desempenho = { ms, empresas: r.qualidade.lidas, falhas: r.qualidade.falhas, recuperadas: r.qualidade.recuperadas || 0, pastasVaziasPuladas: r.qualidade.pastasVaziasPuladas || 0, paginasPoupadas: r.qualidade.paginasPoupadas || 0, chamadas: e.chamadas, chamadasPorSegundo: ms ? Math.round(e.chamadas / (ms / 1000) * 10) / 10 : 0, latenciaMediaMs: e.latenciaMediaMs, limiteFinal: e.limiteFinal, limitePico: e.limitePico, recuos: e.recuos, reducoesPorLentidao: e.reducoesPorLentidao, porRota: Object.fromEntries(Object.entries(rotas).sort((a, b) => b[1] - a[1]).slice(0, 6)) };
+  final.desempenho = { ms, empresas: r.qualidade.lidas, falhas: r.qualidade.falhas, recuperadas: r.qualidade.recuperadas || 0, pastasVaziasPuladas: r.qualidade.pastasVaziasPuladas || 0, paginasPoupadas: r.qualidade.paginasPoupadas || 0, datasPastas: r.qualidade.datasPastas || null, chamadas: e.chamadas, chamadasPorSegundo: ms ? Math.round(e.chamadas / (ms / 1000) * 10) / 10 : 0, latenciaMediaMs: e.latenciaMediaMs, limiteFinal: e.limiteFinal, limitePico: e.limitePico, recuos: e.recuos, reducoesPorLentidao: e.reducoesPorLentidao, porRota: Object.fromEntries(Object.entries(rotas).sort((a, b) => b[1] - a[1]).slice(0, 6)) };
   await saveSnapshot(final);
   if (!final.parcial) await saveSnapshotCompleto(final);                 // só uma leitura que terminou vira o "último resultado completo"
   avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: ativas, msg: `Leitura concluída: ${r.qualidade.lidas} empresas em ${duracao(ms)}` });

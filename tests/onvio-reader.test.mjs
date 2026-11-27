@@ -683,3 +683,17 @@ test('uma empresa recusada não derruba a leitura de todas, se a sessão está v
   sessaoOk = false;
   await assert.rejects(coletar(f, clientes, { conhecidas: ['Fiscal'], descer: ['Fiscal'], rapido: true }), e => e instanceof AuthError);   // sessão caiu: para
 });
+
+test('medição: a data da pasta cobre o que está dentro? (só conta, não muda a leitura)', async () => {
+  const f = async url => {
+    if (url.includes('storage/v1/projects')) return { data: [{ id: 'P', name: 'Fiscal', hasChildren: true, modifiedDate: '2026-11-01T10:00:00Z' }] };
+    const id = /\/(Projects|Folders)\/([^/]+)\/children/.exec(url)[2];
+    if (id === 'P') return { data: { items: [{ id: 'F', name: '2026', type: 'folder', hasChildren: true, createdDate: '2026-01-01T00:00:00Z', modifiedDate: '2026-11-10T09:00:00Z' }] } };
+    if (id === 'F') return { data: { items: [{ id: 'd', name: '11-2026 a.pdf', mimeType: 'application/pdf', createdDate: '2026-11-10T09:00:30Z' }] } };
+    return { data: { items: [] } };
+  };
+  ESTAT.datas = { projetos: 0, projetosOk: 0, pastas: 0, pastasOk: 0 };
+  const r = await lerEmpresa(f, { ids: ['c'], nome: 'A', cnpj: '1' }, { conhecidas: ['Fiscal'], soConhecidas: true, descer: ['Fiscal'], rapido: true });
+  assert.equal(r.docs.filter(d => d.arquivo).length, 1);                       // a leitura continua igual
+  assert.deepEqual(ESTAT.datas, { projetos: 1, projetosOk: 0, pastas: 1, pastasOk: 1 });   // o departamento NÃO acompanhou; a subpasta acompanhou
+});
