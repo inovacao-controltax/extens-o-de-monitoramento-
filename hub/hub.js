@@ -46,19 +46,78 @@ const sector = s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`;
 const badge = (t, c) => `<span class="badge ${c}">${esc(t)}</span>`;
 const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil'];
 
+// ---- Botão de corrigir em cada linha (Josué, 27/11/2026) ----
+let propostaNomes = new Map();      // docId -> nome proposto (atualizado a cada desenho do bloco de correção)
+const acaoNome = r => {
+  if (!real() || !r.docId) return '<span class="muted" title="Leitura antiga, sem o identificador do arquivo: rode Coletar do Onvio">—</span>';
+  if (r.pastaTipo && r.pastaTipo !== 'Folders') return '<span class="muted" title="Arquivo na raiz do departamento: a renomeação só foi mapeada para arquivos dentro de pastas">—</span>';
+  const p = propostaNomes.get(r.docId);
+  return p ? `<button type="button" class="btn btn-sm" data-corrigir-um="${esc(r.docId)}" title="Renomear para: ${esc(p)}">Corrigir</button>`
+    : `<button type="button" class="btn btn-sm" data-corrigir-manual="${esc(r.docId)}" title="Sem competência no nome nem na pasta: você digita a competência">Corrigir…</button>`;
+};
+const acaoPasta = r => {
+  if (!real() || r.pastaTipo !== 'Projects' || !r.pastaId || r.podeExcluir === false) return '';
+  if (r.vazia === true) return `<button type="button" class="btn btn-sm" data-lixeira-um="${esc(r.pastaId)}" data-nome="${esc(r.pasta)}">Enviar para a lixeira</button>`;
+  if (r.vazia === false && liberadoComConteudo(r.pasta, cfg.pastasLixeiraComConteudo)) return `<button type="button" class="btn btn-sm btn-danger" data-lixeira-um-conteudo="${esc(r.pastaId)}" data-nome="${esc(r.pasta)}" title="Você liberou esta pasta para ir à lixeira mesmo com conteúdo">Lixeira (com conteúdo)</button>`;
+  return '';
+};
+const acaoNotif = r => r.contato && corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos) ? `<button type="button" class="btn btn-sm" data-notif-um="${esc(r.contato)}">Colocar no padrão</button>` : '';
+// Janela para o arquivo sem competência: a pessoa digita a competência e confere o nome novo (pode ajustar). Nada é chutado.
+function pedirNomeNovo(l, re) {
+  return new Promise(resolve => {
+    const ov = document.getElementById('overlay');
+    const dot = l.arquivo.lastIndexOf('.'), ext = dot > 0 && l.arquivo.length - dot <= 6 ? l.arquivo.slice(dot) : '', base = (ext ? l.arquivo.slice(0, dot) : l.arquivo).trim();
+    const usados = new Set((source().docs || []).filter(d => d.cnpj === l.cnpj && d.pasta === l.pasta).map(d => String(d.arquivo).toLowerCase()));
+    ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">Corrigir o nome do arquivo</h2>
+      <p style="white-space:pre-line">${esc(l.empresa)} (${esc(formatCnpj(l.cnpj))})\nPasta: ${esc(l.pasta)}\nNome atual: ${esc(l.arquivo)}</p>
+      <div class="field"><label for="pn-comp">Competência (MM-AAAA)</label><input id="pn-comp" class="num" maxlength="7" placeholder="09-2026" autocomplete="off"></div>
+      <div class="field"><label for="pn-nome">Nome novo</label><input id="pn-nome" autocomplete="off" spellcheck="false"><span class="hint" id="pn-msg">Digite a competência: o nome novo é montado sozinho e dá para ajustar.</span></div>
+      <div class="actions"><button class="btn" data-r="0" type="button">Cancelar</button><button class="btn btn-primary" data-r="1" type="button" disabled>Renomear</button></div></div>`;
+    ov.classList.add('open');
+    const comp = ov.querySelector('#pn-comp'), nome = ov.querySelector('#pn-nome'), msg = ov.querySelector('#pn-msg'), ok = ov.querySelector('[data-r="1"]');
+    let mexeu = false;
+    const validar = () => {
+      const v = nome.value.trim(), m = /^(0?[1-9]|1[0-2])[-\/. ]?(20\d{2})$/.exec(comp.value.trim());
+      let erro = '';
+      if (!v) erro = 'Digite a competência.';
+      else if (/[\\/]/.test(v)) erro = 'O nome não pode ter barra.';
+      else if (!re.test(v)) erro = 'Fora do padrão: a competência MM-AAAA tem de vir antes do nome.';
+      else if (v === l.arquivo) erro = 'O nome novo é igual ao atual.';
+      else if (usados.has(v.toLowerCase())) erro = 'Já existe um arquivo com esse nome nesta pasta.';
+      if (!m && !mexeu) erro = erro || 'Digite a competência.';
+      msg.textContent = erro || 'Pronto para renomear.'; ok.disabled = !!erro;
+    };
+    comp.addEventListener('input', () => { const m = /^(0?[1-9]|1[0-2])[-\/. ]?(20\d{2})$/.exec(comp.value.trim()); if (m && !mexeu) nome.value = `${m[1].padStart(2, '0')}-${m[2]} ${base}${ext}`.replace(/\s+/g, ' '); validar(); });
+    nome.addEventListener('input', () => { mexeu = true; validar(); });
+    const done = v => { ov.classList.remove('open'); document.removeEventListener('keydown', key); resolve(v); };
+    const key = e => { if (e.key === 'Escape') done(null); if (e.key === 'Enter' && !ok.disabled) done(nome.value.trim()); };
+    document.addEventListener('keydown', key);
+    ov.onclick = e => { if (e.target === ov) done(null); };
+    ov.querySelector('[data-r="0"]').addEventListener('click', () => done(null));
+    ok.addEventListener('click', () => done(nome.value.trim()));
+    comp.focus();
+  });
+}
+async function corrigirManual(botao, docId) {
+  if (corrigindo) return toast('Espere a correção em andamento terminar.', 'warn');
+  const { re } = compilePattern(cfg.filePattern); if (!re) return;
+  const l = data('nomenclatura').find(x => x.docId === docId); if (!l) return;
+  const novo = await pedirNomeNovo(l, re); if (!novo) return;
+  return corrigirNomesAgora(botao, { ...l, novo });
+}
 // "0 arquivos" nas pastas que a extensão não abre NÃO quer dizer vazia: só vale o que o Onvio informa da pasta (hasChildren).
 const textoConteudoPasta = r => r.vazia === true ? 'vazia (segundo o Onvio)' : r.vazia === false ? (r.arquivos ? `${r.arquivos} arquivos` : 'com conteúdo') : r.arquivos ? `${r.arquivos} arquivos` : 'conteúdo não verificado';
 const conteudoPasta = r => r.vazia === true ? '<span class="badge s-ok">Vazia</span>' : r.vazia === false ? '<span class="badge s-warn">Com conteúdo</span>' : `<span class="muted">${esc(textoConteudoPasta(r))}</span>`;
 const TABS = {
   nomenclatura: { label: 'Nomenclatura', icon: I.file, sev: 's-warn', title: 'Arquivos com nome fora do padrão',
     hint: 'Enviados pelo cliente, fora do padrão de nome', setores: r => [r.setor],
-    cols: [['Empresa'], ['CNPJ', 'num'], ['Setor', 'col-sec'], ['Pasta', 'col-sec'], ['Arquivo'], ['Enviado em', 'num r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), sector(r.setor), esc(r.pasta), esc(r.arquivo), fmt(r.data)],
+    cols: [['Empresa'], ['CNPJ', 'num'], ['Setor', 'col-sec'], ['Pasta', 'col-sec'], ['Arquivo'], ['Enviado em', 'num r'], ['', 'r']],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), sector(r.setor), esc(r.pasta), `${esc(r.arquivo)}${propostaNomes.get(r.docId) ? `<br><small class="prop">→ ${esc(propostaNomes.get(r.docId))}</small>` : ''}`, fmt(r.data), acaoNome(r)],
     step: r => [`Arquivo fora do padrão · ${r.empresa}`, `${r.pasta} · ${r.arquivo}`] },
   pastas: { label: 'Pastas fora do padrão', icon: I.folder, sev: 's-warn', title: 'Empresas com pasta fora do padrão',
     hint: 'Pasta de primeiro nível que não está na estrutura oficial', setores: () => [],
-    cols: [['Empresa'], ['CNPJ', 'num'], ['Pasta encontrada'], ['Conteúdo', 'r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), conteudoPasta(r)],
+    cols: [['Empresa'], ['CNPJ', 'num'], ['Pasta encontrada'], ['Conteúdo', 'r'], ['', 'r']],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), conteudoPasta(r), acaoPasta(r)],
     step: r => [`Pasta fora do padrão · ${r.empresa}`, `"${r.pasta}" · ${textoConteudoPasta(r)}`] },
   semEnvio: { label: 'Treinados sem envio', icon: I.clock, sev: 's-late', title: 'Clientes treinados que não estão enviando',
     hint: 'Treinados, com demanda, sem envio recente no portal', setores: r => r.demanda,
@@ -70,9 +129,9 @@ const TABS = {
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e sem nenhum uso do portal registrado' : `Última atividade do cliente há ${r.dias} dias (${r.fonte || 'arquivo'})`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificações fora do padrão',
     hint: 'Configuração de notificações diferente da do usuário modelo', setores: r => String(r.setor || '').split(', ').filter(Boolean),
-    cols: [['Funcionário'], ['O que está diferente do padrão'], ['Situação']],
-    row: r => r.situacao === 'difere' ? [`<span class="emp">${esc(r.nome)}</span>`, esc(r.motivo), badge('Fora do padrão', 's-warn')]
-      : [`<span class="emp">${esc(r.nome)}</span>`, 'Aviso de tarefa nova', badge('Desligado', 's-late')],
+    cols: [['Funcionário'], ['O que está diferente do padrão'], ['Situação'], ['', 'r']],
+    row: r => r.situacao === 'difere' ? [`<span class="emp">${esc(r.nome)}</span>`, esc(r.motivo), badge('Fora do padrão', 's-warn'), acaoNotif(r)]
+      : [`<span class="emp">${esc(r.nome)}</span>`, 'Aviso de tarefa nova', badge('Desligado', 's-late'), ''],
     step: r => [`Notificações fora do padrão · ${r.nome}`, r.motivo || 'Sem aviso de tarefa nova'] },
 };
 const KEYS = Object.keys(TABS);
@@ -269,12 +328,13 @@ async function aplicarNomesNaLeitura(trocas) {
     if (mudou) await salvar(s);
   }
 }
-async function corrigirNomesAgora(botao) {
-  if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
+async function corrigirNomesAgora(botao, soUm = null) {      // soUm: { docId } (linha com proposta) ou a linha inteira com .novo (nome digitado)
+  if (corrigindo) { if (soUm) return toast('Espere a correção em andamento terminar.', 'warn'); corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
   const { re } = compilePattern(cfg.filePattern); if (!re || !real()) return;
-  const { prontas } = planoDeCorrecao(data('nomenclatura'), re, source().docs || []);
+  let { prontas } = planoDeCorrecao(data('nomenclatura'), re, source().docs || []);
+  if (soUm) prontas = soUm.novo ? [soUm] : prontas.filter(p => p.docId === soUm.docId);
   if (!prontas.length) return toast('Nenhum arquivo com proposta segura agora.', 'warn');
-  const primeira = primeiraCorrecao(), itens = (primeira ? prontas.slice(0, 1) : prontas.slice(0, MAX_RODADA));
+  const primeira = !soUm && primeiraCorrecao(), itens = (primeira ? prontas.slice(0, 1) : prontas.slice(0, MAX_RODADA));
   // cada arquivo com a empresa, o CNPJ e a pasta, para dar para achar no Onvio e conferir
   const amostra = itens.slice(0, 8).map(i => `${i.empresa} (${formatCnpj(i.cnpj)})\nPasta: ${i.pasta}\n${i.arquivo}  →  ${i.novo}`).join('\n\n');
   const okc = await confirmModal({ title: `Renomear ${itens.length} arquivo${itens.length === 1 ? '' : 's'} no Onvio?`, ok: 'Renomear', text: `${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\n${primeira ? 'Primeira vez: só este arquivo, para você conferir no Onvio antes de continuar.' : 'Um por vez, conferindo cada um antes. Nada é excluído nem movido.'} Dá para desfazer.` });
@@ -326,12 +386,13 @@ async function aplicarPastasNaLeitura(ids) {
     if (s.docs.length !== antes) await salvar(s);
   }
 }
-async function enviarParaLixeiraAgora(botao, nome, conteudo = false) {      // nome nulo = todas as vazias de todos os nomes; conteudo = as COM conteúdo de um nome liberado
-  if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
+async function enviarParaLixeiraAgora(botao, nome, conteudo = false, soPasta = null) {      // nome nulo = todas as vazias; conteudo = as COM conteúdo de um nome liberado; soPasta = só a pasta da linha
+  if (corrigindo) { if (soPasta) return toast('Espere a correção em andamento terminar.', 'warn'); corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
   if (conteudo && !liberadoComConteudo(nome, cfg.pastasLixeiraComConteudo)) return;
   const gs = gruposExcluiveis(data('pastas')).filter(x => (nome === null || x.nome === nome) && (conteudo ? x.itensComConteudo.length : x.itens.length)); if (!gs.length) return;
-  const todos = gs.flatMap(x => conteudo ? x.itensComConteudo : x.itens);
-  const primeira = conteudo ? !correcoesPastas.rodadas.some(r => r.comConteudo && r.feitos.length) : primeiraLixeira(), itens = primeira ? todos.slice(0, 1) : todos.slice(0, MAX_RODADA);
+  const todos = gs.flatMap(x => conteudo ? x.itensComConteudo : x.itens).filter(i => !soPasta || i.pastaId === soPasta);
+  if (!todos.length) return;
+  const primeira = soPasta ? false : conteudo ? !correcoesPastas.rodadas.some(r => r.comConteudo && r.feitos.length) : primeiraLixeira(), itens = primeira ? todos.slice(0, 1) : todos.slice(0, MAX_RODADA);
   const resumo = nome === null && !primeira ? gs.map(x => `${x.nome}: ${x.itens.length}`).join('\n') + '\n\n' : '';
   const amostra = resumo + itens.slice(0, 8).map(i => `${i.empresa} (${formatCnpj(i.cnpj)})\nPasta: ${i.pasta}`).join('\n\n');
   const aviso = conteudo ? `ATENÇÃO: estas pastas TÊM ARQUIVOS DENTRO. Elas e tudo que está nelas vão para a lixeira do Onvio (dá para restaurar de lá). Você liberou a pasta "${nome}".\n\n` : '';
@@ -398,11 +459,11 @@ async function aplicarNotifNaLeitura(contatos, alvo, voltar) {
     await chrome.storage.local.set({ 'monitor-notificacoes': x });
   } catch (e) { /* a próxima leitura acerta */ }
 }
-async function corrigirNotifAgora(botao) {
-  if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
+async function corrigirNotifAgora(botao, soContato = null) {
+  if (corrigindo) { if (soContato) return toast('Espere a correção em andamento terminar.', 'warn'); corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
   const alvo = corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos); if (!alvo) return toast('O padrão do usuário modelo ainda não foi lido por completo.', 'warn');
-  const todas = data('notificacoes').filter(r => r.situacao === 'difere'); if (!todas.length) return;
-  const primeira = primeiraNotif(), itens = primeira ? todas.slice(0, 1) : todas.slice(0, MAX_RODADA);
+  const todas = data('notificacoes').filter(r => r.situacao === 'difere' && (!soContato || r.contato === soContato)); if (!todas.length) return;
+  const primeira = !soContato && primeiraNotif(), itens = primeira ? todas.slice(0, 1) : todas.slice(0, MAX_RODADA);
   const amostra = itens.slice(0, 8).map(i => `${i.nome}\nDiferente: ${i.motivo}`).join('\n\n');
   const okc = await confirmModal({ title: `Colocar ${itens.length} funcionário${itens.length === 1 ? '' : 's'} no padrão de notificações?`, ok: 'Colocar no padrão', text: `${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\nAs opções de Solicitações de Serviço ficam iguais às de ${nsnap.modelo.nome}. ${primeira ? 'Primeira vez: só este, para você conferir no Onvio antes de continuar. ' : ''}Um por vez, conferindo antes. Dá para desfazer.` });
   if (!okc) return;
@@ -447,6 +508,7 @@ function correcaoNomesHtml() {
   const linhas = data('nomenclatura'); if (!linhas.length || !real()) return '';
   const { re } = compilePattern(cfg.filePattern); if (!re) return '';
   const { prontas, pendentes } = planoDeCorrecao(linhas, re, source().docs || []);
+  propostaNomes = new Map(prontas.map(p => [p.docId, p.novo]));
   const prev = prontas.slice(0, 40).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="col-sec">${esc(r.pasta)}</td><td>${esc(r.arquivo)}</td><td><b>${esc(r.novo)}</b> <span class="muted">· ${r.de === 'nome' ? 'competência do nome' : 'competência da pasta'}</span></td></tr>`).join('');
   const por = {}; pendentes.forEach(x => { por[x.motivo] = (por[x.motivo] || 0) + 1; });
   const semId = por['sem-id'] || 0;      // leitura de antes da 0.23: sem o identificador do arquivo não dá para corrigir
@@ -554,6 +616,11 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-lixeira]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeira)));
+  v.querySelectorAll('[data-corrigir-um]').forEach(e => e.addEventListener('click', () => corrigirNomesAgora(e, { docId: e.dataset.corrigirUm })));
+  v.querySelectorAll('[data-corrigir-manual]').forEach(e => e.addEventListener('click', () => corrigirManual(e, e.dataset.corrigirManual)));
+  v.querySelectorAll('[data-lixeira-um]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.nome, false, e.dataset.lixeiraUm)));
+  v.querySelectorAll('[data-lixeira-um-conteudo]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.nome, true, e.dataset.lixeiraUmConteudo)));
+  v.querySelectorAll('[data-notif-um]').forEach(e => e.addEventListener('click', () => corrigirNotifAgora(e, e.dataset.notifUm)));
   v.querySelectorAll('[data-corrigir-notif]').forEach(e => e.addEventListener('click', () => corrigirNotifAgora(e)));
   v.querySelectorAll('[data-desfazer-notif]').forEach(e => e.addEventListener('click', desfazerNotifAgora));
   v.querySelectorAll('[data-hist-csv]').forEach(e => e.addEventListener('click', () => baixarHistoricoCsv(e.dataset.histCsv)));
