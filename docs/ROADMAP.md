@@ -22,5 +22,7 @@
 | 11 | **Resumo do dia** (0.21): novidades das últimas 24 h e variação desde ontem, sem permissão nova | feito, a conferir no uso |
 | 12 | **Padrão de pastas pela empresa modelo 9999** (0.22) | feito, a conferir no Onvio real |
 | 13 | **Decidido não fazer (Josué, 26/11/2026):** ler só os meses recentes e parar de ler a pasta Financeiro. O monitor de nomes fora do padrão depende de TODOS os arquivos dos clientes, e não vale ganhar velocidade perdendo esse monitoramento. A velocidade vem da leitura adaptativa. **Em aberto:** grupos entre raízes também no Hub; notificação do Chrome (exige permissão nova) | decidido |
+| 14 | **Correções no Onvio, uma por vez** (0.23 a 0.28): nomes de arquivo (renomear, com desfazer; validado no Onvio real), pastas fora do padrão para a lixeira do Onvio (vazias; a zlkx-c também com conteúdo), histórico com CSV | feito; notificações desligadas aguardam o mapeamento |
+| 15 | **Leitura confiável e rápida** (0.29 e 0.30): erro do Onvio numa empresa não derruba a leitura; pastas vazias não são abertas; 2 min 42 s e 0 falhas no Onvio real; leitura incremental descartada (a data das pastas não acompanha o conteúdo) | feito |
 
 Ideia geral e arquitetura: veja `IDEIA.md`.
