@@ -194,12 +194,12 @@
   const visivelEl = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const textoProfundo = (max = 8000) => { let t = ''; for (const n of textos()) { t += ' ' + n.nodeValue; if (t.length > max) break; } return t; };
   // O nome do item no texto da tela (o que estiver visível; o igual ganha do parecido). Devolve a linha da lista, se for uma linha curta.
-  function acharNaTela(nome) {
+  function acharNaTela(nome, pessoa = false) {
     if (!ver || !document.body) return null;
     let melhor = null, nota = 0;
     for (const n of textos()) {
       const t = n.nodeValue; if (!t || t.length < 2 || t.length > 400) continue;
-      const c = ver.casaTexto(t, nome); if (!c || c <= nota) continue;
+      const c = Math.max(ver.casaTexto(t, nome), pessoa ? ver.casaNome(t, nome) : 0); if (!c || c <= nota) continue;
       const el = n.parentElement; if (!el || !visivelEl(el)) continue;
       melhor = el; nota = c; if (c === 2) break;
     }
@@ -223,13 +223,23 @@
     const a = barra.alvo;
     if (!a.destaque) return;
     if (!barra.el || !barra.el.isConnected) {
-      barra.el = acharNaTela(a.destaque);
+      barra.el = acharNaTela(a.destaque, a.k === 'notificacoes');
       if (barra.el && !barra.rolou) { barra.rolou = true; try { barra.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } }
     }
     posicionar();
-    if (barra.el) estadoBusca('ok', 'Em destaque na tela (contorno azul).');
-    else if (Date.now() - barra.t0 > 20000) estadoBusca('no', `Não apareceu nesta tela: role a lista ou procure pelo nome${a.copiado ? ' (já copiado: Ctrl+V na busca do Onvio)' : ''}.`);
+    if (barra.paginando && !barra.el) return;          // percorrendo as páginas da lista: o estado é dela
+    if (barra.el) estadoBusca('ok', barra.pagina ? `Em destaque na página ${barra.pagina} da lista (contorno azul).` : 'Em destaque na tela (contorno azul).');
+    else if (Date.now() - barra.t0 > 20000) estadoBusca('no', `Não apareceu nesta tela: role a lista ou procure pelo nome${a.copiado ? ' (já copiado: Ctrl+V na busca do Onvio)' : ''}.${barra.diag || a.k === 'notificacoes' ? ` [${[barra.diag, a.k === 'notificacoes' ? parecidoNaTela(a.destaque) : ''].filter(Boolean).join('; ')}]` : ''}`);
     else estadoBusca('', 'Procurando na tela do Onvio…');
+  }
+  // o texto da tela mais parecido com o nome procurado (só para dizer no quadro o que a tela mostra, quando não acha)
+  function parecidoNaTela(nome) {
+    let melhor = '', nota = 0;
+    for (const n of textos()) {
+      const t = (n.nodeValue || '').replace(/\s+/g, ' ').trim(); if (t.length < 3 || t.length > 80) continue;
+      const c = ver.partesEmComum(t, nome); if (c > nota && n.parentElement && visivelEl(n.parentElement)) { melhor = t; nota = c; }
+    }
+    return melhor ? `parecido na tela: "${melhor.slice(0, 50)}"` : `nenhuma parte do nome na tela; ${vistos.sombras} componentes, ${vistos.quadros} quadros`;
   }
   addEventListener('scroll', () => { if (barra) posicionar(); }, true);
   addEventListener('resize', () => { if (barra) posicionar(); });
@@ -285,13 +295,17 @@
     }
     el.click();
   }
-  function acharCampoBusca() {
+  const dicaCampo = el => [el.placeholder, el.getAttribute('aria-label'), el.name, el.id, el.title].filter(Boolean).join(' ');
+  function acharCampoBusca(soUnico = false) {
+    const campos = [];
     for (const el of elementos()) {
       if (el.tagName !== 'INPUT' || !visivelEl(el) || el.disabled || el.readOnly) continue;
       const tipo = (el.getAttribute('type') || 'text').toLowerCase(); if (tipo !== 'text' && tipo !== 'search') continue;
-      if (ver.ehCampoBusca([el.placeholder, el.getAttribute('aria-label'), el.name, el.id, el.title].filter(Boolean).join(' '))) return el;
+      if (ver.ehCampoBusca(dicaCampo(el))) return el;
+      const ir = acharIrAPagina(); if (ir && ir.campo === el) continue;       // o "Ir a página" da paginação não é busca
+      campos.push(el);
     }
-    return null;
+    return soUnico && campos.length === 1 ? campos[0] : null;      // sem dica: só se for o único campo de texto da tela
   }
   // como o Control Onvio faz na grade do Portal: escreve e aperta Enter (só no campo de busca; nenhum botão)
   function preencherBusca(campo, valor) {
@@ -302,16 +316,77 @@
     for (const t of ['keydown', 'keypress', 'keyup']) campo.dispatchEvent(new v.KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true }));
     campo.dispatchEvent(new v.Event('change', { bubbles: true }));
   }
-  function procurarFuncionario(alvo, ativo) {
-    if (!ativo()) return;
+  const esperaMs = ms => new Promise(r => setTimeout(r, ms));
+  // Paginação das grades do Onvio ("Página 1 de 20", "Ir a página" e o botão "Ir"): lida pelo texto; trocar de página é só navegação.
+  function lerPaginacao() {
+    for (const el of elementos()) {
+      if (el.childElementCount > 4) continue;
+      const t = el.textContent; if (!t || t.length > 40) continue;
+      const p = ver.paginaDe(t); if (p && visivelEl(el)) return p;
+    }
+    return null;
+  }
+  function acharIrAPagina() {
+    for (const n of textos()) {
+      if (!ver.ehIrAPagina(n.nodeValue || '') || !n.parentElement || !visivelEl(n.parentElement)) continue;
+      let c = n.parentElement;
+      for (let k = 0; k < 4 && c; k++, c = c.parentElement) {      // o campo e o botão "Ir" ficam juntos do rótulo
+        const campo = [...c.querySelectorAll('input')].find(i => visivelEl(i) && !i.disabled && /^(text|number|search|)$/i.test(i.getAttribute('type') || ''));
+        const botao = [...c.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]')].find(b => visivelEl(b) && ver.ehBotaoIr(b.value || textoEl(b)));
+        if (campo && botao) return { campo, botao };
+      }
+    }
+    return null;
+  }
+  function irParaPagina(n) {
+    const ir = acharIrAPagina(); if (!ir) return false;
+    const v = ir.campo.ownerDocument.defaultView || window, set = Object.getOwnPropertyDescriptor(v.HTMLInputElement.prototype, 'value').set;
+    ir.campo.focus(); set.call(ir.campo, String(n));
+    for (const t of ['input', 'change']) ir.campo.dispatchEvent(new v.Event(t, { bubbles: true, composed: true }));
+    ir.campo.dispatchEvent(new v.KeyboardEvent('keyup', { bubbles: true, composed: true, key: String(n).slice(-1) }));
+    clicarNavegacao(ir.botao);
+    return true;
+  }
+  // Procura o funcionário na lista: na página aberta; se a lista tem páginas ("Ir a página"), uma por uma até achar; se tem campo de
+  // busca, escreve o nome (inteiro e, se não achar, só o primeiro nome). O quadro diz o que foi feito.
+  async function procurarFuncionario(alvo, ativo0) {
+    if (!ativo0()) return;
+    const gen = barra.gen = (barra.gen || 0) + 1, ativo = () => ativo0() && !!barra && barra.gen === gen;     // uma procura por vez
     if (laco) clearInterval(laco);
-    barra.t0 = Date.now(); barra.el = null; barra.rolou = false;
+    Object.assign(barra, { t0: Date.now(), el: null, rolou: false, diag: '', pagina: 0, paginando: false });
     procurar(); laco = setInterval(procurar, 500);
-    setTimeout(() => {      // não apareceu em 4 s (lista longa ou paginada): escreve o nome na busca da própria tela
-      if (!ativo() || !barra || barra.el) return;
-      const campo = acharCampoBusca(); if (!campo) return;
-      preencherBusca(campo, alvo.destaque); barra.t0 = Date.now();
-    }, 4000);
+    await esperaMs(2500);                                   // a grade termina de carregar
+    if (!ativo() || barra.el) return;
+    const pag = lerPaginacao();
+    if (pag && pag.total > 1 && acharIrAPagina()) {
+      barra.paginando = true;
+      try {
+        for (let i = 1; i < pag.total && ativo() && !barra.el; i++) {
+          const n = ((pag.atual - 1 + i) % pag.total) + 1;
+          estadoBusca('', `Procurando ${alvo.destaque} na página ${n} de ${pag.total}…`);
+          if (!irParaPagina(n)) { barra.diag = 'não consegui trocar de página'; break; }
+          for (let t = 0; t < 20 && ativo(); t++) { await esperaMs(300); const p = lerPaginacao(); if (p && p.atual === n) break; }
+          await esperaMs(350);
+          if (!ativo()) return;
+          const el = acharNaTela(alvo.destaque, true);
+          if (el) { barra.el = el; barra.pagina = n; barra.rolou = true; try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } }
+        }
+      } finally { if (barra) { barra.paginando = false; if (barra.el && !barra.pagina) barra.pagina = (lerPaginacao() || {}).atual || 0; } }
+      if (!ativo() || barra.el) return;
+      if (laco) { clearInterval(laco); laco = null; }
+      return estadoBusca('no', `Não achei ${alvo.destaque} nas ${pag.total} páginas da lista. [${[barra.diag, parecidoNaTela(alvo.destaque)].filter(Boolean).join('; ')}]`);
+    }
+    const buscar = (valor, rotulo) => {
+      if (!ativo() || !barra || barra.el) return false;
+      const campo = acharCampoBusca(true);
+      if (!campo) { barra.diag = pag ? `lista com ${pag.total} página(s), sem "Ir a página" nem busca` : 'sem campo de busca na tela'; return false; }
+      preencherBusca(campo, valor); barra.t0 = Date.now();
+      barra.diag = `busca "${(dicaCampo(campo) || 'sem nome').slice(0, 30)}" com ${rotulo}`;
+      return true;
+    };
+    if (!buscar(alvo.destaque, 'o nome inteiro')) return;
+    await esperaMs(5000);
+    if (ver.partesDoNome(alvo.destaque).length >= 2) buscar(alvo.destaque.split(/\s+/)[0], 'o nome inteiro e depois o primeiro nome');
   }
   async function roteiroNotif(alvo) {
     const id = ++roteiroId, ativo = () => !!barra && barra.alvo === alvo && id === roteiroId;

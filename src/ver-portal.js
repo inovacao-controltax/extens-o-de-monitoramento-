@@ -17,6 +17,30 @@ export const ehMenuConfig = t => /^configuracoes$/.test(semAcento(t).replace(/[^
 export const ehMenuNotif = t => { const v = semAcento(t); return v.length <= 80 && v.includes('notifica') && v.includes('escritorio'); };
 /** A página de erro do Portal ("Página não encontrada", "Código do erro: 404"). */
 export const ehPagina404 = t => /pagina nao encontrada|codigo do erro:?\s*404/.test(semAcento(String(t || '').slice(0, 5000)));
+// Nome de pessoa na tela (0.37.10; Josué, 27/11/2026: "ele não achou o analista agora"): a lista do Onvio pode mostrar o nome com o do
+// meio ("Clinton de Souza Lima"), em outra ordem ("LIMA, Clinton") ou sem acento. Vale quando todas as partes do nome procurado aparecem
+// num texto curto (de, da, do… não contam).
+const LIGA = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+export const partesDoNome = s => semAcento(s).split(/[^a-z0-9]+/).filter(t => t.length >= 2 && !LIGA.has(t));
+export function casaNome(visivel, nome) {
+  const v = semAcento(visivel).replace(/\s+/g, ' ').trim(), p = semAcento(nome).replace(/\s+/g, ' ').trim();
+  if (!v || !p) return 0;
+  if (v === p) return 2;
+  const pp = partesDoNome(p), pv = new Set(partesDoNome(v));
+  return pp.length >= 2 && v.length <= p.length + 60 && pp.every(t => pv.has(t)) ? 1 : 0;
+}
+/** Quantas partes do nome procurado um texto tem (para dizer o "mais parecido" quando não acha). */
+export const partesEmComum = (visivel, nome) => { const pv = new Set(partesDoNome(visivel)); return partesDoNome(nome).filter(t => pv.has(t)).length; };
+/** "Página 1 de 20" da paginação das grades do Onvio: { atual, total } (ou null). */
+export function paginaDe(texto) {
+  const m = /^p[aá]gina\s+(\d{1,4})\s+de\s+(\d{1,4})$/i.exec(String(texto || '').replace(/\s+/g, ' ').trim());
+  if (!m) return null;
+  const atual = +m[1], total = +m[2];
+  return atual >= 1 && total >= atual && total <= 500 ? { atual, total } : null;
+}
+/** O rótulo "Ir a página" e o botão "Ir" da paginação. */
+export const ehIrAPagina = t => /^ir a pagina$/.test(semAcento(t).replace(/\s+/g, ' ').trim());
+export const ehBotaoIr = t => /^ir$/.test(semAcento(t).trim());
 /** Campo de busca da tela (pela dica, pelo rótulo ou pelo nome do campo). */
 export const ehCampoBusca = dica => /pesquis|busc|procur|filtr|nome/.test(semAcento(dica));
 const txt = (v, max = 300) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alvoSeguro, comoNavegar, casaTexto, pedidoValeAqui, urlDoOnvio, voltaDaUrl, voltaSegura, VALIDADE_VER_MS, PORTAL_INICIO, ehPortal, ehMenuConfig, ehMenuNotif, ehPagina404, ehCampoBusca } from '../src/ver-portal.js';
+import { alvoSeguro, comoNavegar, casaTexto, pedidoValeAqui, urlDoOnvio, voltaDaUrl, voltaSegura, VALIDADE_VER_MS, PORTAL_INICIO, ehPortal, ehMenuConfig, ehMenuNotif, ehPagina404, ehCampoBusca, casaNome, partesEmComum, partesDoNome, paginaDe, ehIrAPagina, ehBotaoIr } from '../src/ver-portal.js';
 
 test('"ver no portal": só endereço do Onvio do escritório', () => {
   assert.equal(urlDoOnvio('/staff/#/documents/folders/F3'), 'https://onvio.com.br/staff/#/documents/folders/F3');
@@ -86,4 +86,30 @@ test('"ver no portal" das notificações: o caminho pelo menu do Portal do Clien
   assert.equal(ehCampoBusca('E-mail'), false);
   assert.equal(alvoSeguro({ k: 'notificacoes', roteiro: 'notif' }).roteiro, 'notif');
   assert.equal(alvoSeguro({ k: 'notificacoes', roteiro: 'outro' }).roteiro, '');
+});
+
+test('"ver no portal" das notificações: o nome do analista como a lista do Onvio pode mostrar', () => {
+  assert.equal(casaNome('Clinton Lima', 'Clinton Lima'), 2);
+  assert.equal(casaNome('CLINTON LIMA', 'Clinton Lima'), 2);
+  assert.equal(casaNome('Clinton de Souza Lima', 'Clinton Lima'), 1, 'com o nome do meio');
+  assert.equal(casaNome('LIMA, Clinton', 'Clinton Lima'), 1, 'em outra ordem');
+  assert.equal(casaNome('José Antônio', 'Jose Antonio'), 2, 'sem acento');
+  assert.equal(casaNome('Clinton Souza', 'Clinton Lima'), 0);
+  assert.equal(casaNome('Clinton', 'Clinton Lima'), 0, 'só o primeiro nome não basta');
+  assert.equal(casaNome('Lima', 'Lima'), 2);
+  assert.equal(casaNome('Clinton ' + 'x '.repeat(60) + 'Lima', 'Clinton Lima'), 0, 'nunca no meio de um texto longo');
+  assert.deepEqual(partesDoNome('Maria da Silva e Souza'), ['maria', 'silva', 'souza']);
+  assert.equal(partesEmComum('Clinton Souza', 'Clinton Lima'), 1);
+});
+
+test('"ver no portal" das notificações: a paginação da lista do Onvio', () => {
+  assert.deepEqual(paginaDe('Página 1 de 20'), { atual: 1, total: 20 });
+  assert.deepEqual(paginaDe(' Pagina  13  de 20 '), { atual: 13, total: 20 });
+  assert.equal(paginaDe('Página 21 de 20'), null);
+  assert.equal(paginaDe('Página 1 de 20 · 199 usuários'), null, 'só o texto da paginação');
+  assert.equal(ehIrAPagina('Ir a página'), true);
+  assert.equal(ehIrAPagina('Ir a pagina'), true);
+  assert.equal(ehBotaoIr('Ir'), true);
+  assert.equal(ehBotaoIr('Ir para página inicial'), false);
+  assert.equal(casaNome('Consultoria, Controltax', 'Controltax Consultoria'), 1, 'o Onvio mostra alguns como "Sobrenome, Nome"');
 });
