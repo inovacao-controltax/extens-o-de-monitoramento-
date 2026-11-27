@@ -16,11 +16,14 @@
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     *{box-sizing:border-box}
-    #b{pointer-events:auto;position:fixed;right:20px;bottom:24px;width:48px;height:48px;padding:0;border:3px solid transparent;border-radius:10px;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.25);touch-action:none;transition:border-color .2s}
-    #b img{height:30px;width:auto;pointer-events:none;display:block}
+    /* a bolinha no desenho da do Control Onvio (círculo de 48 px com o logo num círculo de 34 px), com as cores trocadas: branca por fora, preta por dentro (Josué, 27/11/2026) */
+    #b{pointer-events:auto;position:fixed;right:20px;bottom:24px;width:48px;height:48px;padding:0;border:0;border-radius:50%;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(16,24,32,.22),0 10px 24px rgba(16,24,32,.28);touch-action:none;transition:transform .15s ease,box-shadow .2s ease}
+    #b .mk{width:34px;height:34px;border-radius:50%;background:#0E151B;display:grid;place-items:center;pointer-events:none}
+    #b img{width:17px;height:21px;pointer-events:none;display:block}
+    #b.lendo{box-shadow:0 0 0 3px #B5530C,0 2px 6px rgba(16,24,32,.22),0 10px 24px rgba(16,24,32,.28)}
     #n{position:absolute;top:-8px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#C2000C;color:#fff;font:700 11.5px/20px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 0 0 2px #fff}
     #n[hidden]{display:none}
-    #b:hover{filter:brightness(.96)} #b:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px} #b.arr{cursor:grabbing}
+    #b:hover{transform:scale(1.1)} #b:focus-visible{outline:2px solid #6BAAC9;outline-offset:3px} #b.arr{cursor:grabbing;transform:none}
     #v{pointer-events:auto;position:fixed;inset:0;background:#0B1015}
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
@@ -47,7 +50,7 @@
     @media (prefers-reduced-motion:reduce){#hl{animation:none}}
     #av[hidden]{display:none} #av button{font:700 13px system-ui,sans-serif;padding:8px 14px;border-radius:4px;border:1px solid #fff;background:#fff;color:#7A1F12;cursor:pointer} #av button.s{background:transparent;color:#fff}
   </style>
-  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"><span id="n" hidden></span></button>
+  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><span class="mk"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"></span><span id="n" hidden></span></button>
   <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"><div id="av" hidden role="alert"><span id="avt"></span><button type="button" id="avr">Recarregar a página</button><button type="button" id="avf" class="s">Fechar</button></div></div>
   <div id="hl" hidden></div><section id="vp" hidden aria-label="Vendo no portal"></section>`;
   document.documentElement.appendChild(host);
@@ -238,7 +241,7 @@
   const dica = 'Hub de Monitoramento (Alt+Shift+M)';   // o estado da leitura troca a dica; o contador de novas usa o título quando não há leitura em curso
   function estado(e) {
     b.title = e.estado === 'rodando' ? `${dica}\nLendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? `${dica}\n${e.msg}` : e.estado === 'cliente' ? dica : `${dica}\nLeitura: ${e.msg || e.estado}`;
-    b.style.borderColor = e.estado === 'rodando' ? '#B5530C' : 'transparent';   // laranja enquanto lê
+    b.classList.toggle('lendo', e.estado === 'rodando');   // anel laranja enquanto lê
   }
   // A leitura do Onvio só começa em página do Onvio (no Gestta quem lê é src/gestta-auto.js).
   if (!NO_GESTTA) import(chrome.runtime.getURL('src/auto-coleta.js')).then(m => m.iniciar({ onEstado: estado })).catch(() => { /* leitura automática indisponível */ });
