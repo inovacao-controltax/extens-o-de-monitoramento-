@@ -140,3 +140,6 @@ Terceira correção ligada: **Colocar no padrão** em Notificações (detalhes e
 
 ## Botões das linhas com cor (0.35.1)
 (Josué, 27/11/2026: "deixe o botão com cor".) Os botões de ação das linhas ficaram em **azul cheio** quando a ação já está pronta (Corrigir com o nome proposto, Enviar para a lixeira, Colocar no padrão, Avisar) e em **azul claro** quando pedem uma decisão antes (Corrigir…, em que você digita a competência). A lixeira com conteúdo continua vermelha (perigo). Conferido nos temas claro e escuro.
+
+## Tabelas que cabem na tela e com mais espaço (0.35.2)
+(Josué, 27/11/2026: "o botão não tá aparecendo, e o espaçamento está muito pouco".) As células não podiam quebrar linha, e os recibos da DCTF Web têm nomes enormes sem espaço: a tabela passava da largura e as colunas "Enviado em" e o botão ficavam fora da tela. Agora o texto longo (empresa, pasta, arquivo) quebra onde precisar, e números, etiquetas e botões nunca quebram; a tabela cabe na largura e o botão da linha fica sempre à vista (conferido a 1366 px com empresa, pasta e arquivo longos). As linhas ganharam respiro: 12 px de cima e de baixo, 16 px dos lados e altura mínima de 52 px.
