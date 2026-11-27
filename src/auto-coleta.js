@@ -213,4 +213,9 @@ export async function ciclo(onEstado) {
 export function iniciar({ onEstado, atrasoMs = 2000, cadaMs = 60 * 1000 } = {}) {
   setTimeout(() => ciclo(onEstado), atrasoMs);
   setInterval(() => ciclo(onEstado), cadaMs);
+  // A página do Onvio saiu no meio da leitura (recarga, "Ver no portal" indo a outra tela): solta a vez na hora, para a próxima página
+  // recomeçar logo em vez de esperar 3 min. O que já foi lido fica.
+  // Na saída da página só dá tempo de UMA gravação, sem esperar nada antes: apaga a trava (lendo nesta aba, a trava é desta aba). A próxima
+  // página recomeça a leitura e grava o andamento por cima.
+  addEventListener('pagehide', () => { if (!rodando) return; try { st().remove(CHAVE_TRAVA); } catch (e) { /* extensão atualizada */ } });
 }
