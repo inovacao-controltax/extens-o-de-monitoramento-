@@ -164,16 +164,43 @@
     if (st.dataset.cls === cls && st.dataset.t === texto) return;
     st.dataset.cls = cls; st.dataset.t = texto; st.className = 'st ' + cls; st.innerHTML = `<i></i><span>${escH(texto)}</span>`;
   }
+  // A tela do Onvio vista por inteiro: a página, as "sombras" dos componentes (o Portal do Cliente monta partes da tela assim, e a busca
+  // comum não entra nelas) e os quadros do próprio onvio.com.br. Só para achar texto e desenhar por cima; nada é guardado.
+  const sombraDe = el => { try { return el.shadowRoot || (chrome.dom && chrome.dom.openOrClosedShadowRoot ? chrome.dom.openOrClosedShadowRoot(el) : null); } catch (e) { return null; } };
+  let vistos = { sombras: 0, quadros: 0 };
+  function* elementos(raiz = document.body, prof = 0) {
+    if (!raiz) return;
+    if (prof === 0) vistos = { sombras: 0, quadros: 0 };
+    const w = document.createTreeWalker(raiz, NodeFilter.SHOW_ELEMENT, { acceptNode: x => (x === host ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      yield n;
+      const sr = prof < 10 && sombraDe(n); if (sr) { vistos.sombras++; yield* elementos(sr, prof + 1); }
+      if (n.tagName === 'IFRAME' && prof < 4) { let d = null; try { d = n.contentDocument; } catch (e) { /* quadro de outro site: nunca */ } if (d && d.body) {   /* só abre o quadro que o navegador deixa ler: o do mesmo site */ vistos.quadros++; yield* elementos(d.body, prof + 1); } }
+    }
+  }
+  function* textos(limite = 60000) {
+    let i = 0;
+    for (const el of elementos()) {
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+      for (const c of el.childNodes) if (c.nodeType === 3) { if (++i > limite) return; yield c; }
+    }
+  }
+  // posição na tela de cima (soma o deslocamento dos quadros)
+  function retangulo(el) {
+    const r = el.getBoundingClientRect(); let x = r.left, y = r.top;
+    try { let w = el.ownerDocument.defaultView; while (w && w !== window && w.frameElement) { const f = w.frameElement.getBoundingClientRect(); x += f.left + w.frameElement.clientLeft; y += f.top + w.frameElement.clientTop; w = w.parent; } } catch (e) { /* quadro de outro site */ }
+    return { left: x, top: y, width: r.width, height: r.height, right: x + r.width, bottom: y + r.height };
+  }
+  const visivelEl = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const textoProfundo = (max = 8000) => { let t = ''; for (const n of textos()) { t += ' ' + n.nodeValue; if (t.length > max) break; } return t; };
   // O nome do item no texto da tela (o que estiver visível; o igual ganha do parecido). Devolve a linha da lista, se for uma linha curta.
   function acharNaTela(nome) {
     if (!ver || !document.body) return null;
-    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let melhor = null, nota = 0;
-    for (let n = w.nextNode(), i = 0; n && i < 40000; n = w.nextNode(), i++) {
+    for (const n of textos()) {
       const t = n.nodeValue; if (!t || t.length < 2 || t.length > 400) continue;
       const c = ver.casaTexto(t, nome); if (!c || c <= nota) continue;
-      const el = n.parentElement; if (!el) continue;
-      const r = el.getBoundingClientRect(); if (!r.width || !r.height) continue;
+      const el = n.parentElement; if (!el || !visivelEl(el)) continue;
       melhor = el; nota = c; if (c === 2) break;
     }
     if (!melhor) return null;
@@ -183,7 +210,7 @@
   }
   function posicionar() {
     if (!barra || !barra.el || !barra.el.isConnected) { hl.hidden = true; return; }
-    const r = barra.el.getBoundingClientRect();
+    const r = retangulo(barra.el);
     if (!r.width || !r.height || r.bottom < 0 || r.top > innerHeight) { hl.hidden = true; return; }
     hl.hidden = false; hl.style.left = (r.left - 5) + 'px'; hl.style.top = (r.top - 5) + 'px'; hl.style.width = (r.width + 10) + 'px'; hl.style.height = (r.height + 10) + 'px';
     // o quadro fica no canto de baixo à direita e nunca cobre o item: se o item passa por esse canto, o quadro sobe para o canto de cima
@@ -237,35 +264,43 @@
   // (monitor-url-notif2) para a próxima vez ir direto. Na tela: o contorno no funcionário; se ele não aparece, escreve o nome na busca da
   // própria tela (só preenche o campo, não aperta nenhum botão).
   let roteiroId = 0;
-  const visivelEl = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const textoEl = el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+  const CLICAVEL = 'a, button, [role="menuitem"], [role="tab"], [role="button"], [role="link"], li, [tabindex]';
+  // o item pelo texto exato de um pedaço de texto da tela (qualquer elemento); devolve o clicável mais próximo (até 4 níveis acima)
   function acharItem(teste) {
-    let melhor = null;
-    for (const el of document.querySelectorAll('a, button, [role="menuitem"], [role="tab"], li, span')) {
-      if (host.contains(el)) continue;
-      const t = textoEl(el); if (!t || t.length > 90 || !teste(t) || !visivelEl(el)) continue;
-      if (!melhor || melhor.contains(el)) melhor = el;           // o mais de dentro que casa: o próprio item, não o menu inteiro
+    let reserva = null;
+    for (const n of textos()) {
+      const t = (n.nodeValue || '').replace(/\s+/g, ' ').trim(); if (!t || t.length > 90 || !teste(t)) continue;
+      const el = n.parentElement; if (!el || !visivelEl(el)) continue;
+      let c = el; for (let k = 0; k < 4 && c; k++, c = c.parentElement) if (c.matches && c.matches(CLICAVEL)) return c;
+      if (!reserva) reserva = el;
     }
-    return melhor ? (melhor.closest('a, button, [role="menuitem"], [role="tab"]') || melhor) : null;
+    return reserva;
   }
   function clicarNavegacao(el) {
-    for (const t of ['mouseover', 'mouseenter']) el.dispatchEvent(new MouseEvent(t, { bubbles: t === 'mouseover', cancelable: true, view: window }));
+    const v = el.ownerDocument.defaultView || window;
+    for (const t of ['pointerover', 'mouseover', 'mouseenter', 'pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
+      const E = t.startsWith('pointer') && v.PointerEvent ? v.PointerEvent : v.MouseEvent;
+      el.dispatchEvent(new E(t, { bubbles: t !== 'mouseenter', cancelable: true, composed: true, view: v }));
+    }
     el.click();
   }
   function acharCampoBusca() {
-    for (const el of document.querySelectorAll('input')) {
-      if (host.contains(el) || !visivelEl(el) || el.disabled || el.readOnly) continue;
+    for (const el of elementos()) {
+      if (el.tagName !== 'INPUT' || !visivelEl(el) || el.disabled || el.readOnly) continue;
       const tipo = (el.getAttribute('type') || 'text').toLowerCase(); if (tipo !== 'text' && tipo !== 'search') continue;
       if (ver.ehCampoBusca([el.placeholder, el.getAttribute('aria-label'), el.name, el.id, el.title].filter(Boolean).join(' '))) return el;
     }
     return null;
   }
+  // como o Control Onvio faz na grade do Portal: escreve e aperta Enter (só no campo de busca; nenhum botão)
   function preencherBusca(campo, valor) {
-    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    const v = campo.ownerDocument.defaultView || window;
+    const set = Object.getOwnPropertyDescriptor(v.HTMLInputElement.prototype, 'value').set;
     campo.focus(); set.call(campo, valor);
-    campo.dispatchEvent(new Event('input', { bubbles: true }));
-    campo.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: valor.slice(-1) }));
-    campo.dispatchEvent(new Event('change', { bubbles: true }));
+    campo.dispatchEvent(new v.Event('input', { bubbles: true, composed: true }));
+    for (const t of ['keydown', 'keypress', 'keyup']) campo.dispatchEvent(new v.KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true }));
+    campo.dispatchEvent(new v.Event('change', { bubbles: true }));
   }
   function procurarFuncionario(alvo, ativo) {
     if (!ativo()) return;
@@ -282,7 +317,7 @@
     const id = ++roteiroId, ativo = () => !!barra && barra.alvo === alvo && id === roteiroId;
     const espera = ms => new Promise(r => setTimeout(r, ms));
     const ate = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (!ativo()) return null; const x = fn(); if (x) return x; await espera(300); } return null; };
-    const e404 = () => ver.ehPagina404(document.body ? document.body.innerText : '');
+    const e404 = () => ver.ehPagina404(textoProfundo());
     const caminho = u => { try { return new URL(u).pathname.replace(/\/+$/, ''); } catch (e) { return '?'; } };
     let aprendido = null; try { aprendido = (await chrome.storage.local.get('monitor-url-notif2'))['monitor-url-notif2'] || null; } catch (e) { /* sem storage */ }
     const aqui = () => location.pathname.replace(/\/+$/, '');
@@ -296,12 +331,12 @@
       if (r !== 'erro') return;
       if (laco) { clearInterval(laco); laco = null; }
     }
-    if (!cfg) return estadoBusca('no', 'Não achei o menu Configurações do Portal do Cliente. Abra Configurações › Notificações do Escritório e procure pelo nome (já copiado).');
+    if (!cfg) return estadoBusca('no', `Não achei o menu Configurações do Portal do Cliente. Abra Configurações › Notificações do Escritório e procure pelo nome (já copiado). [detalhe: ${vistos.sombras} componentes, ${vistos.quadros} quadros]`);
     estadoBusca('', 'Abrindo Configurações…');
     let item = acharItem(ver.ehMenuNotif);
     if (!item) { clicarNavegacao(cfg); item = await ate(() => acharItem(ver.ehMenuNotif), 5000); }
     if (!ativo()) return;
-    if (!item) return estadoBusca('no', 'Abri Configurações, mas não achei as notificações do escritório. Clique nelas e procure pelo nome (já copiado).');
+    if (!item) return estadoBusca('no', `Abri Configurações, mas não achei as notificações do escritório. Clique nelas e procure pelo nome (já copiado). [detalhe: ${vistos.sombras} componentes, ${vistos.quadros} quadros]`);
     estadoBusca('', `Abrindo ${textoEl(item)}…`);
     const antes = location.href; clicarNavegacao(item);
     await ate(() => location.href !== antes, 5000); await espera(500);
