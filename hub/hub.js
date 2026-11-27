@@ -153,7 +153,7 @@ function atualizarPill() {
 }
 function renderNav() {
   const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, data(k).length]), ['envios', 'Últimos envios', I.list, 0], ['coleta', 'Coleta do Onvio', I.sync, 0]];
-  const navHtml = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('');
+  const navHtml = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt${k === 'semEnvio' ? ' late' : ''}">${n > 999 ? '999+' : n}</span>` : ''}</button>`).join('');
   if (navHtml !== navAnt) { navAnt = navHtml; $('nav').innerHTML = navHtml; $('nav').querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.k))); }
   if (state.view === 'config') $('cfgBtn').setAttribute('aria-current', 'page'); else $('cfgBtn').removeAttribute('aria-current');
   $('seg').hidden = state.view === 'config' || state.view === 'coleta' || state.view === 'envios';
@@ -475,28 +475,33 @@ function resumoDiaHtml() {
   const novas = r.novas.filter(x => TABS[x.k]);
   const linhas = novas.map(x => `<button type="button" class="step ${TABS[x.k].sev}" data-go="${x.k}"><i class="dot"></i><div><b>${x.n} ${x.n === 1 ? 'novo' : 'novos'} em ${esc(nome(x.k))}</b><small>${esc(x.textos.join(' · '))}${x.n > x.textos.length ? ` · e mais ${x.n - x.textos.length}` : ''}</small></div></button>`).join('');
   const mud = r.variacao.filter(e => TABS[e.k]).map(e => `<span class="chip" title="${esc(nome(e.k))}: ${e.agora} agora">${esc(nome(e.k))} <small>${e.delta > 0 ? '+' : '−'}${Math.abs(e.delta)}</small></span>`).join('');
-  return `<section class="card" style="margin-bottom:12px"><h2>Resumo do dia <span class="count">${novas.reduce((s, x) => s + x.n, 0)}</span></h2>${linhas || '<p class="muted" style="margin:6px 0 0">Nada novo nas últimas 24 horas.</p>'}${mud ? `<div class="inner" style="margin-top:8px"><span>Desde ontem:</span>${mud}</div>` : ''}</section>`;
+  return `<section class="card"><h2>Resumo do dia${novas.length ? ` <span class="count">${novas.reduce((s, x) => s + x.n, 0)}</span>` : ''}</h2>${linhas || '<p class="muted" style="margin:6px 0 0">Nada novo nas últimas 24 horas.</p>'}${mud ? `<div class="inner" style="margin-top:8px"><span>Desde ontem:</span>${mud}</div>` : ''}</section>`;
 }
 function hojeHtml() {
   const n = total();
   const empresasComPend = new Set(KEYS.filter(k => k !== 'notificacoes').flatMap(k => data(k).map(r => r.cnpj))).size;
-  const pct = Math.max(0, Math.round(((universo() - empresasComPend) / universo()) * 100));
-  const C = 2 * Math.PI * 52, okLen = C * pct / 100;
-  const all = KEYS.flatMap(k => data(k).map(r => ({ k, r })));
-  const top = all.sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1))[0];
   const semLeitura = lendoSemDados() || (!!real() && !(real().qualidade.lidas > 0) && !real().lendo);
-  const hero = `<div class="card hero"><div class="ring"><svg viewBox="0 0 120 120"><circle class="bg" cx="60" cy="60" r="52"/><circle class="warn" cx="60" cy="60" r="52" stroke-dasharray="${C}"/><circle class="ok" cx="60" cy="60" r="52" stroke-dasharray="${okLen} ${C}"/></svg><b>${semLeitura ? '—' : pct + '%'}</b></div>
-    <div><span class="eyebrow">Carteira no portal · ${real() ? (real().lendo ? 'lendo ao vivo' : real()._atualizando ? 'última coleta completa · atualizando' : 'coleta do Onvio') : lendoSemDados() ? 'lendo agora' : 'coleta de exemplo'} ${hora()}</span>
-    <h2>${semLeitura ? (lendoSemDados() ? 'Lendo o Onvio…' : 'Nada foi lido ainda') : n ? `${n} pendências para acompanhar` : 'Tudo em dia'}</h2>
-    <p>${semLeitura ? (lendoSemDados() ? 'Os resultados aparecem aqui assim que as primeiras empresas forem lidas.' : 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.') : `${Math.max(0, universo() - empresasComPend)} de ${universo()} empresas sem pendência de documentos`}</p>
-    ${top ? `<div class="inner"><span class="badge ${TABS[top.k].sev}">Mais urgente</span><b>${esc(TABS[top.k].step(top.r)[0])}</b></div>` : ''}
-    <div class="inner"><span>Monitores:</span>${KEYS.map(k => `<span class="chip ${TABS[k].sev.replace('s-', 'c-')}" style="--c:var(--status-${TABS[k].sev.slice(2)})">${esc(TABS[k].label)} <small>${data(k).length}</small></span>`).join('')}</div></div></div>`;
-  const steps = all.slice(0, 3).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
+  if (semLeitura) return `<div class="card"><div class="empty"><b>${lendoSemDados() ? 'Lendo o Onvio…' : 'Nada foi lido ainda'}</b><p>${lendoSemDados() ? 'Os resultados aparecem aqui assim que as primeiras empresas forem lidas.' : 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.'}</p></div></div>`;
+  // Uma linha de resumo, um número por monitor (clicar abre o monitor) e, embaixo, o que fazer e o que mudou. As tabelas ficam em cada monitor.
+  const origem = real() ? (real().lendo ? 'lendo ao vivo' : 'coleta do Onvio') : 'dados de exemplo';
+  const SUB = { nomenclatura: 'arquivos de cliente com nome fora do padrão', pastas: 'pastas fora da estrutura', semEnvio: 'clientes treinados sem usar o portal', notificacoes: 'funcionários fora do padrão' };
+  const corrigiveis = k => {
+    try {
+      if (k === 'nomenclatura') { const { re } = compilePattern(cfg.filePattern); return re ? planoDeCorrecao(data(k), re, []).prontas.length : 0; }
+      if (k === 'pastas') return gruposExcluiveis(data(k)).reduce((s, g) => s + g.itens.length, 0);
+      if (k === 'notificacoes') return corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos) ? data(k).filter(r => r.situacao === 'difere').length : 0;
+    } catch (e) { /* só o número */ }
+    return 0;
+  };
+  const kpis = `<div class="kpis">${KEYS.map(k => { const q = data(k).length, c = q ? corrigiveis(k) : 0, late = k === 'semEnvio' && q;
+    return `<button type="button" class="kpi" data-go="${k}"><span class="kpi-l">${late ? '<i class="kpi-dot"></i>' : ''}${esc(TABS[k].label)}</span><b class="kpi-n">${q.toLocaleString('pt-BR')}</b><span class="kpi-s">${q ? esc(SUB[k]) : 'tudo no padrão'}</span>${c ? `<span class="kpi-a">${c.toLocaleString('pt-BR')} com correção pronta</span>` : ''}</button>`; }).join('')}</div>`;
+  const all = KEYS.flatMap(k => data(k).map(r => ({ k, r }))).sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1));
+  const steps = all.slice(0, 5).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
   const recados = recadosAtuais().filter(r => !state.dispensados.has(r.id));
-  const notes = `<div class="card notes"><h2>${I.info} Recados <span class="count">${recados.length}</span></h2>${recados.map(r => `<div class="note"><div><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p></div><button type="button" data-dismiss="${r.id}" aria-label="Dispensar recado">${I.x}</button></div>`).join('') || '<div class="note"><p>Sem recados.</p></div>'}</div>`;
-  const metrics = `<div class="metrics">${KEYS.map(k => `<button type="button" class="metric ${data(k).length ? 'has' : ''}" data-go="${k}"><span>${esc(TABS[k].label)}</span><span class="count">${data(k).length}</span>${I.info}</button>`).join('')}</div>`;
-  return `${resumoDiaHtml()}<div class="toolbar"><span class="grow">${n} pendências</span><button class="btn" id="exp" type="button" title="Baixa as pendências que estão na tela (respeita busca e setor)">Exportar CSV</button></div>
-    <div class="grid3">${hero}<div class="card"><h2>Próximos passos <span class="count">${Math.min(3, all.length)}</span></h2>${steps}</div>${notes}</div>${metrics}${KEYS.map(blockHtml).join('')}`;
+  const notes = recados.length ? `<div class="card notes"><h2>${I.info} Recados</h2>${recados.map(r => `<div class="note"><div><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p></div><button type="button" data-dismiss="${r.id}" aria-label="Dispensar recado">${I.x}</button></div>`).join('')}</div>` : '';
+  return `<div class="toolbar"><span class="grow muted">${n.toLocaleString('pt-BR')} pendências · ${Math.max(0, universo() - empresasComPend).toLocaleString('pt-BR')} de ${universo().toLocaleString('pt-BR')} empresas sem pendência · ${origem} ${hora()}</span><button class="btn" id="exp" type="button" title="Baixa as pendências que estão na tela (respeita busca e setor)">Exportar CSV</button></div>
+    ${kpis}
+    <div class="grid2"><div class="card"><h2>Próximos passos</h2>${steps}</div><div class="coluna">${resumoDiaHtml()}${notes}</div></div>`;
 }
 
 function render(animar = false) {

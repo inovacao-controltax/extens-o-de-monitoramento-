@@ -17,10 +17,13 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:-.01em;line-height:var(-
 .rail-btn,.rail nav button{all:unset;box-sizing:border-box;position:relative;width:40px;height:40px;display:grid;place-items:center;border-radius:var(--r-lg);cursor:pointer;color:var(--masthead-ink-2);
   border:1px solid color-mix(in srgb,var(--masthead-ink) 14%,transparent);transition:background var(--duration-hover) var(--ease-out),color var(--duration-hover) var(--ease-out);}
 .rail-btn:hover,.rail nav button:hover{background:var(--masthead-2);color:var(--masthead-ink);}
-.rail nav button[aria-current=page]{background:var(--brand-red);border-color:var(--brand-red);color:#fff;}
+/* item ativo: fundo discreto e traço azul à esquerda (vermelho é só marca, atraso e perigo) */
+.rail nav button[aria-current=page]{background:var(--masthead-2);color:var(--masthead-ink);}
+.rail nav button[aria-current=page]::before{content:'';position:absolute;left:-16px;top:8px;bottom:8px;width:3px;border-radius:0 var(--r-xs) var(--r-xs) 0;background:var(--blue-mid);}
 .rail-btn:disabled{opacity:.5;cursor:not-allowed;}
 .rail-btn:focus-visible,.rail nav button:focus-visible{outline:2px solid var(--blue-mid);}
-.rail nav .cnt{position:absolute;top:-6px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:var(--r-pill);background:var(--brand-red);color:#fff;font:600 var(--fs-meta)/20px var(--font-num);text-align:center;}
+.rail nav .cnt{position:absolute;top:-4px;right:-6px;min-width:18px;height:18px;padding:0 4px;border-radius:var(--r-pill);background:var(--masthead-2);color:var(--masthead-ink);border:1px solid var(--masthead);font:500 10px/16px var(--font-num);text-align:center;font-variant-numeric:tabular-nums;}
+.rail nav .cnt.late{background:var(--brand-red);color:#fff;}
 .rail-foot{margin-top:auto;display:flex;flex-direction:column;gap:var(--sp-2);}
 
 /* Topo */
@@ -234,3 +237,19 @@ progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-de
 .pl-aviso{color:var(--ink-2);}
 .pl-mais{margin-top:var(--sp-2);}
 .pl-mais summary{cursor:pointer;color:var(--ink-2);padding:6px 0;}
+
+/* Tela inicial: um número por monitor e, embaixo, o que fazer e o que mudou */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-4);}
+.kpi{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-4);background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);transition:background var(--duration-hover,120ms);}
+.kpi:hover{background:var(--surface-2);}.kpi:focus-visible{outline:2px solid var(--blue-deep);outline-offset:2px;}
+.kpi-l{display:flex;align-items:center;gap:var(--sp-2);color:var(--ink-2);font-size:var(--fs-control);font-weight:500;}
+.kpi-dot{width:8px;height:8px;border-radius:50%;background:var(--status-late);flex:none;}
+.kpi-n{font:500 var(--fs-h1)/1.15 var(--font-num);font-variant-numeric:tabular-nums;color:var(--ink);}
+.kpi-s{color:var(--ink-3);font-size:var(--fs-meta);}
+.kpi-a{color:var(--blue-deep);font-size:var(--fs-meta);font-weight:500;}
+.grid2{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:var(--sp-4);align-items:start;}
+.coluna{display:flex;flex-direction:column;gap:var(--sp-4);}
+.muted{color:var(--ink-3);}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.grid2{grid-template-columns:1fr;}}
+.kpis{margin:var(--sp-2) 0 var(--sp-4);}
+.toolbar .grow.muted{margin-left:0;flex:1;font-size:var(--fs-control);}
