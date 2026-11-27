@@ -271,7 +271,34 @@ const data = k => R[k].filter(r => {
   }
   return !term() || Object.values(r).join(' ').toLowerCase().includes(term());
 });
-const total = () => KEYS.reduce((n, k) => n + data(k).length, 0);
+// ---- Bloco só com número quando as leituras dele terminaram (0.37.9; Josué, 27/11/2026: "os dois blocos é uma falha de demora de leitura";
+// "houve essa demora, o que não gera confiabilidade"). Treinados sem envio depende da lista de treinados e da demanda do Hub, das Solicitações
+// do Portal e das empresas lidas; Notificações, da leitura das notificações da equipe e do padrão do usuário modelo. Enquanto falta algo,
+// o bloco diz "Lendo…" e o quê (ou "Sem dados" e o motivo, se a leitura falhou) e fica fora do total e dos próximos passos; nunca "0 · Em dia".
+let extrasProntos = false, hubEst = null, solicEst = null;
+const falhouLeitura = e => !!e && ['erro', 'sem_sessao', 'cliente'].includes(e.estado);
+function falta(k) {
+  if (!real()) return null;                       // exemplo ou nada lido: o resto da tela já avisa
+  if (k !== 'semEnvio' && k !== 'notificacoes') return null;
+  if (!extrasProntos) return { txt: 'Carregando…' };
+  if (k === 'notificacoes') {
+    if (!nsnap) return falhouLeitura(nestado) ? { txt: `Não deu para ler as notificações${nestado.msg ? ': ' + nestado.msg : ''}. Tenta de novo sozinho.`, falhou: true } : { txt: 'Lendo as notificações da equipe…' };
+    const m = nsnap.modelo;
+    if (!(m && m.estado === 'configurado' && m.campos)) return { txt: `Falta o padrão: abra as notificações de ${(m && m.nome) || cfg.notifModelo || 'usuário modelo'} no Onvio e clique em Salvar sem mudar nada.`, falhou: true };
+    return null;
+  }
+  const hubFalhou = hubEst && hubEst.ok === false && hubEst.motivo !== 'sem-codigo';
+  if (!cfg.trained.length) {
+    if (!String(cfg.hubCodigo || '').trim()) return { txt: 'Sem a lista de treinados: cole o código do Hub em Configurações.', falhou: true };
+    return hubFalhou ? { txt: `Não deu para puxar os treinados do Hub: ${hubEst.msg || 'tenta de novo em 10 min'}`, falhou: true } : { txt: 'Lendo os treinados do Hub…' };
+  }
+  if (String(cfg.hubCodigo || '').trim() && !demandaHub && !(hubEst && hubEst.ok)) return hubFalhou ? null : { txt: 'Lendo a demanda do Hub…' };
+  if (!ssnap || ssnap.escopo !== 'todas-v2') return falhouLeitura(solicEst) ? { txt: `Não deu para ler as Solicitações do Portal${solicEst.msg ? ': ' + solicEst.msg : ''}. Tenta de novo sozinho.`, falhou: true } : { txt: 'Lendo as Solicitações do Portal…' };
+  if (real().lendo && !snapCompleto) return { txt: 'Lendo as empresas do Onvio…' };
+  return null;
+}
+const contaveis = () => KEYS.filter(k => !falta(k));
+const total = () => contaveis().reduce((n, k) => n + data(k).length, 0);
 
 function toast(m, kind = 'ok') { const t = $('toast'); t.textContent = m; t.dataset.kind = kind; t.classList.add('show'); clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), Math.min(25000, Math.max(4000, String(m).length * 80))); }   // mensagem longa (onde achar o arquivo corrigido) fica mais tempo na tela
 
@@ -293,7 +320,7 @@ function atualizarPill() {
   pill.title = rod ? (andamento.msg || '') : '';
 }
 function renderNav() {
-  const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, data(k).length]), ['envios', 'Últimos envios', I.list, 0], ['coleta', 'Coleta do Onvio', I.sync, 0]];
+  const items = [['hoje', 'Hoje', I.home, 0], ...KEYS.map(k => [k, TABS[k].label, TABS[k].icon, falta(k) ? 0 : data(k).length]), ['envios', 'Últimos envios', I.list, 0], ['coleta', 'Coleta do Onvio', I.sync, 0]];
   const navHtml = items.map(([k, l, i, n]) => `<button type="button" data-k="${k}" title="${esc(l)}" aria-label="${esc(l)}" ${k === state.view ? 'aria-current="page"' : ''}>${i}${n ? `<span class="cnt${k === 'semEnvio' ? ' late' : ''}">${n > 999 ? '999+' : n}</span>` : ''}</button>`).join('');
   if (navHtml !== navAnt) { navAnt = navHtml; $('nav').innerHTML = navHtml; $('nav').querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.k))); }
   if (state.view === 'config') $('cfgBtn').setAttribute('aria-current', 'page'); else $('cfgBtn').removeAttribute('aria-current');
@@ -387,7 +414,8 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${k === 'notificacoes' ? padraoNotifHtml() + corrigirNotifHtml() + historicoCorrecoesHtml('notif') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
+  const f = falta(k), aviso = f ? `<p class="aviso-lendo${f.falhou ? ' falhou' : ''}" role="status">${f.falhou ? 'Sem dados: ' : 'Ainda lendo: '}${esc(f.txt)}${f.falhou ? '' : ' A lista abaixo pode mudar quando terminar.'}</p>` : '';
+  return `${aviso}<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${k === 'notificacoes' ? padraoNotifHtml() + corrigirNotifHtml() + historicoCorrecoesHtml('notif') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -623,7 +651,7 @@ function resumoDiaHtml() {
 }
 function hojeHtml() {
   const n = total();
-  const empresasComPend = new Set(KEYS.filter(k => k !== 'notificacoes').flatMap(k => data(k).map(r => r.cnpj))).size;
+  const empresasComPend = new Set(contaveis().filter(k => k !== 'notificacoes').flatMap(k => data(k).map(r => r.cnpj))).size;
   const semLeitura = lendoSemDados() || (!!real() && !(real().qualidade.lidas > 0) && !real().lendo);
   if (semLeitura) return `<div class="card"><div class="empty"><b>${lendoSemDados() ? 'Lendo o Onvio…' : 'Nada foi lido ainda'}</b><p>${lendoSemDados() ? 'Os resultados aparecem aqui assim que as primeiras empresas forem lidas.' : 'A leitura do Onvio não trouxe nenhuma empresa. Veja o andamento em Coleta do Onvio.'}</p></div></div>`;
   // Uma linha de resumo, um número por monitor (clicar abre o monitor) e, embaixo, o que fazer e o que mudou. As tabelas ficam em cada monitor.
@@ -642,11 +670,13 @@ function hojeHtml() {
   const SITUACAO = { 's-warn': 'Atenção', 's-soon': 'Atenção', 's-late': 'Atrasado' };
   const COM_CORRECAO = new Set(['nomenclatura', 'pastas', 'notificacoes']);
   const kpis = `<div class="kpis">${KEYS.map(k => {
+    const f = falta(k);
+    if (f) return `<button type="button" class="kpi ${f.falhou ? 's-warn' : 's-lendo'}" data-go="${k}" aria-busy="${!f.falhou}"><span class="kpi-l"><span class="kpi-ic">${TABS[k].icon}</span>${esc(TABS[k].label)}</span><b class="kpi-n kpi-n-lendo">${f.falhou ? '—' : '<span class="gira" aria-hidden="true"></span>'}</b><span class="kpi-s">${esc(f.txt)}</span><span class="kpi-st"><i></i>${f.falhou ? 'Sem dados' : 'Lendo'}</span></button>`;
     const q = data(k).length, c = q ? corrigiveis(k) : 0, sev = q ? TABS[k].sev : 's-ok', fmtN = x => x.toLocaleString('pt-BR');
     const barra = q && COM_CORRECAO.has(k) ? `<span class="kpi-barra" title="Azul: já tem correção pronta"><b style="width:${c ? Math.max(2, Math.round(c / q * 100)) : 0}%"></b></span><span class="kpi-a${c ? '' : ' zero'}">${c ? `${fmtN(c)} de ${fmtN(q)} com correção pronta` : 'nenhum com correção pronta'}</span>` : '';
     return `<button type="button" class="kpi ${sev}" data-go="${k}"><span class="kpi-l"><span class="kpi-ic">${TABS[k].icon}</span>${esc(TABS[k].label)}</span><b class="kpi-n">${fmtN(q)}</b><span class="kpi-s">${q ? esc(SUB[k]) : 'tudo no padrão'}</span><span class="kpi-st"><i></i>${q ? SITUACAO[TABS[k].sev] || 'Atenção' : 'Em dia'}</span>${barra}</button>`;
   }).join('')}</div>`;
-  const all = KEYS.flatMap(k => data(k).map(r => ({ k, r }))).sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1));
+  const all = contaveis().flatMap(k => data(k).map(r => ({ k, r }))).sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1));
   const steps = all.slice(0, 5).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
   const recados = recadosAtuais().filter(r => !state.dispensados.has(r.id));
   const notes = recados.length ? `<div class="card notes"><h2>${I.info} Recados</h2>${recados.map(r => `<div class="note"><div><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p></div><button type="button" data-dismiss="${r.id}" aria-label="Dispensar recado">${I.x}</button></div>`).join('')}</div>` : '';
@@ -863,8 +893,10 @@ try {
     if (ch['monitor-pastas-modelo']) { pastasModelo = ch['monitor-pastas-modelo'].newValue || null; recompute(); renderSuave(); }
     if (ch['monitor-url-notif2']) { lerUrlNotif(ch['monitor-url-notif2'].newValue); renderSuave(); }
     if (ch[CHAVE_DEMANDA]) { demandaHub = ch[CHAVE_DEMANDA].newValue || null; recompute(); renderSuave(); }
+    if (ch['monitor-hub-estado']) { hubEst = ch['monitor-hub-estado'].newValue || null; renderNav(); renderSuave(); }
+    if (ch['monitor-solicitacoes-estado']) { solicEst = ch['monitor-solicitacoes-estado'].newValue || null; renderNav(); renderSuave(); }
     if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
-    if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
+    if (ch['monitor-notificacoes']) { nsnap = ch['monitor-notificacoes'].newValue || null; renderNav(); }
     if (ch['monitor-gestta']) gsnap = ch['monitor-gestta'].newValue || null;
     if (ch['monitor-gestta-estado']) gestado = ch['monitor-gestta-estado'].newValue || null;
     if (ch['monitor-snapshot']) { snap = await loadSnapshot(); if (snap && snap.fonte === 'onvio' && !snap.lendo && !snap.parcial) snapCompleto = snap; }
@@ -872,6 +904,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', 'monitor-correcoes-notif', 'monitor-url-notif2', CHAVE_HIST]).then(r => { lerUrlNotif(r['monitor-url-notif2']); correcoesNotif = r['monitor-correcoes-notif'] || { rodadas: [] }; correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', 'monitor-correcoes-notif', 'monitor-url-notif2', 'monitor-hub-estado', 'monitor-solicitacoes-estado', CHAVE_HIST]).then(r => { lerUrlNotif(r['monitor-url-notif2']); hubEst = r['monitor-hub-estado'] || null; solicEst = r['monitor-solicitacoes-estado'] || null; extrasProntos = true; correcoesNotif = r['monitor-correcoes-notif'] || { rodadas: [] }; correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderNav(); render(false); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }

@@ -192,7 +192,7 @@ export async function rodarAgora({ onEstado } = {}) {
 
 /**
  * Um ciclo por vez, em fila, para nada disputar o Onvio com a leitura principal das empresas (que é a que importa e a mais pesada):
- * primeiro o que é leve e rápido (notificações da equipe e treinados do Hub), depois a leitura principal e SÓ DEPOIS os extras
+ * primeiro o que é leve e rápido (treinados do Hub e notificações da equipe), depois a leitura principal e SÓ DEPOIS os extras
  * (Solicitações e histórico). Se um ciclo ainda está rodando, o minuto seguinte espera: nada se acumula nem roda em paralelo.
  */
 let cicloAtivo = false;
@@ -200,8 +200,8 @@ export async function ciclo(onEstado) {
   if (cicloAtivo) return;
   cicloAtivo = true;
   try {
+    await rodarTreinados();        // a lista do Hub é rápida e o bloco Treinados sem envio depende dela: vem primeiro (0.37.9)
     await rodarNotifs();
-    await rodarTreinados();
     await rodarAgora({ onEstado });
     await rodarSolicitacoes();
     await rodarHistorico();
