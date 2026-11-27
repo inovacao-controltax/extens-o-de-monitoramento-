@@ -137,3 +137,6 @@ Terceira correção ligada: **Colocar no padrão** em Notificações (detalhes e
 - **Notificações:** **Colocar no padrão** em cada funcionário.
 - **Treinados sem envio:** já tinha Avisar e Silenciar por linha.
 **Competência colada:** os recibos da DCTF Web (`Recibo_<CNPJ>_082026_40_….pdf`) passam a ter proposta: `MMAAAA` com 6 dígitos exatos entre separadores vira a competência (`08-2026 Recibo_<CNPJ>_40_….pdf`); CNPJ, data completa (8 dígitos) e mês 13 não confundem.
+
+## Botões das linhas com cor (0.35.1)
+(Josué, 27/11/2026: "deixe o botão com cor".) Os botões de ação das linhas ficaram em **azul cheio** quando a ação já está pronta (Corrigir com o nome proposto, Enviar para a lixeira, Colocar no padrão, Avisar) e em **azul claro** quando pedem uma decisão antes (Corrigir…, em que você digita a competência). A lixeira com conteúdo continua vermelha (perigo). Conferido nos temas claro e escuro.

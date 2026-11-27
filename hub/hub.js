@@ -52,16 +52,16 @@ const acaoNome = r => {
   if (!real() || !r.docId) return '<span class="muted" title="Leitura antiga, sem o identificador do arquivo: rode Coletar do Onvio">—</span>';
   if (r.pastaTipo && r.pastaTipo !== 'Folders') return '<span class="muted" title="Arquivo na raiz do departamento: a renomeação só foi mapeada para arquivos dentro de pastas">—</span>';
   const p = propostaNomes.get(r.docId);
-  return p ? `<button type="button" class="btn btn-sm" data-corrigir-um="${esc(r.docId)}" title="Renomear para: ${esc(p)}">Corrigir</button>`
-    : `<button type="button" class="btn btn-sm" data-corrigir-manual="${esc(r.docId)}" title="Sem competência no nome nem na pasta: você digita a competência">Corrigir…</button>`;
+  return p ? `<button type="button" class="btn btn-sm btn-acao" data-corrigir-um="${esc(r.docId)}" title="Renomear para: ${esc(p)}">Corrigir</button>`
+    : `<button type="button" class="btn btn-sm btn-acao suave" data-corrigir-manual="${esc(r.docId)}" title="Sem competência no nome nem na pasta: você digita a competência">Corrigir…</button>`;
 };
 const acaoPasta = r => {
   if (!real() || r.pastaTipo !== 'Projects' || !r.pastaId || r.podeExcluir === false) return '';
-  if (r.vazia === true) return `<button type="button" class="btn btn-sm" data-lixeira-um="${esc(r.pastaId)}" data-nome="${esc(r.pasta)}">Enviar para a lixeira</button>`;
+  if (r.vazia === true) return `<button type="button" class="btn btn-sm btn-acao" data-lixeira-um="${esc(r.pastaId)}" data-nome="${esc(r.pasta)}">Enviar para a lixeira</button>`;
   if (r.vazia === false && liberadoComConteudo(r.pasta, cfg.pastasLixeiraComConteudo)) return `<button type="button" class="btn btn-sm btn-danger" data-lixeira-um-conteudo="${esc(r.pastaId)}" data-nome="${esc(r.pasta)}" title="Você liberou esta pasta para ir à lixeira mesmo com conteúdo">Lixeira (com conteúdo)</button>`;
   return '';
 };
-const acaoNotif = r => r.contato && corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos) ? `<button type="button" class="btn btn-sm" data-notif-um="${esc(r.contato)}">Colocar no padrão</button>` : '';
+const acaoNotif = r => r.contato && corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos) ? `<button type="button" class="btn btn-sm btn-acao" data-notif-um="${esc(r.contato)}">Colocar no padrão</button>` : '';
 // Janela para o arquivo sem competência: a pessoa digita a competência e confere o nome novo (pode ajustar). Nada é chutado.
 function pedirNomeNovo(l, re) {
   return new Promise(resolve => {
@@ -125,7 +125,7 @@ const TABS = {
     row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), fmt(r.treinadoEm), r.demanda.map(sector).join(''),
       r.dias === null ? '<span class="muted">nenhum registrado</span>' : `há ${r.dias} dias <span class="muted">· ${esc(r.fonte || 'arquivo')}</span>`,
       r.dias === null ? badge('Nenhum envio registrado', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn'),
-      `<span style="display:inline-flex;gap:6px;align-items:center">${(cfg.avisados || {})[r.cnpj] ? `<small class="muted" title="Dia em que o rascunho do aviso foi aberto">aviso em ${fmt(cfg.avisados[r.cnpj])}</small>` : ''}<button type="button" class="btn btn-sm" data-avisar="${esc(r.cnpj)}" title="Prepara o e-mail para o cliente no Zimbra (você confere e envia)">Avisar</button><button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button></span>`],
+      `<span style="display:inline-flex;gap:6px;align-items:center">${(cfg.avisados || {})[r.cnpj] ? `<small class="muted" title="Dia em que o rascunho do aviso foi aberto">aviso em ${fmt(cfg.avisados[r.cnpj])}</small>` : ''}<button type="button" class="btn btn-sm btn-acao" data-avisar="${esc(r.cnpj)}" title="Prepara o e-mail para o cliente no Zimbra (você confere e envia)">Avisar</button><button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button></span>`],
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e sem nenhum uso do portal registrado' : `Última atividade do cliente há ${r.dias} dias (${r.fonte || 'arquivo'})`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificações fora do padrão',
     hint: 'Configuração de notificações diferente da do usuário modelo', setores: r => String(r.setor || '').split(', ').filter(Boolean),
