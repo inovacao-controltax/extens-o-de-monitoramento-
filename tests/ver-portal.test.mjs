@@ -92,7 +92,9 @@ test('"ver no portal" das notificações: o nome do analista como a lista do Onv
   assert.equal(casaNome('Clinton Lima', 'Clinton Lima'), 2);
   assert.equal(casaNome('CLINTON LIMA', 'Clinton Lima'), 2);
   assert.equal(casaNome('Clinton de Souza Lima', 'Clinton Lima'), 1, 'com o nome do meio');
-  assert.equal(casaNome('LIMA, Clinton', 'Clinton Lima'), 1, 'em outra ordem');
+  assert.equal(casaNome('LIMA, Clinton', 'Clinton Lima'), 2, 'em outra ordem é a mesma pessoa');
+  assert.equal(casaNome('Clinton Lima Neto', 'Clinton Lima'), 1, 'com partes a mais é só parecido');
+  assert.equal(casaNome('clinton.lima@controltax.com.br', 'Clinton Lima'), 1, 'o e-mail nunca vale como a pessoa');
   assert.equal(casaNome('José Antônio', 'Jose Antonio'), 2, 'sem acento');
   assert.equal(casaNome('Clinton Souza', 'Clinton Lima'), 0);
   assert.equal(casaNome('Clinton', 'Clinton Lima'), 0, 'só o primeiro nome não basta');
@@ -111,5 +113,5 @@ test('"ver no portal" das notificações: a paginação da lista do Onvio', () =
   assert.equal(ehIrAPagina('Ir a pagina'), true);
   assert.equal(ehBotaoIr('Ir'), true);
   assert.equal(ehBotaoIr('Ir para página inicial'), false);
-  assert.equal(casaNome('Consultoria, Controltax', 'Controltax Consultoria'), 1, 'o Onvio mostra alguns como "Sobrenome, Nome"');
+  assert.equal(casaNome('Consultoria, Controltax', 'Controltax Consultoria'), 2, 'o Onvio mostra alguns como "Sobrenome, Nome"');
 });

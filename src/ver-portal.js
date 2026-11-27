@@ -26,8 +26,9 @@ export function casaNome(visivel, nome) {
   const v = semAcento(visivel).replace(/\s+/g, ' ').trim(), p = semAcento(nome).replace(/\s+/g, ' ').trim();
   if (!v || !p) return 0;
   if (v === p) return 2;
-  const pp = partesDoNome(p), pv = new Set(partesDoNome(v));
-  return pp.length >= 2 && v.length <= p.length + 60 && pp.every(t => pv.has(t)) ? 1 : 0;
+  const pp = partesDoNome(p), lv = partesDoNome(v), pv = new Set(lv);
+  if (pp.length < 2 || v.length > p.length + 60 || !pp.every(t => pv.has(t))) return 0;
+  return lv.length === pp.length && new Set(pp).size === pv.size ? 2 : 1;      // as mesmas partes (em qualquer ordem) = a pessoa; com partes a mais = parecido
 }
 /** Quantas partes do nome procurado um texto tem (para dizer o "mais parecido" quando não acha). */
 export const partesEmComum = (visivel, nome) => { const pv = new Set(partesDoNome(visivel)); return partesDoNome(nome).filter(t => pv.has(t)).length; };
