@@ -49,6 +49,8 @@ test('"ver no portal": o nome do item na tela (igual, dentro de um texto curto o
   assert.equal(casaTexto('Rel…', 'Relatorio.pdf'), 0, 'corte curto demais');
   assert.equal(casaTexto('x '.repeat(80) + 'zlkx-c', 'zlkx-c'), 0, 'nunca no meio de um parágrafo');
   assert.equal(casaTexto('outra coisa', 'zlkx-c'), 0);
+  assert.equal(casaTexto('Apuração COMPETE', 'Apuração COMPETE.zip'), 1, 'o Onvio pode mostrar o nome sem a extensão');
+  assert.equal(casaTexto('Apu', 'Apu.zip'), 0, 'nome curto demais sem a extensão');
 });
 
 test('"ver no portal": a volta para a extensão só aceita lista conhecida', () => {
