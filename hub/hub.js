@@ -66,12 +66,12 @@ const TABS = {
       r.dias === null ? badge('Nenhum envio registrado', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn'),
       `<span style="display:inline-flex;gap:6px;align-items:center">${(cfg.avisados || {})[r.cnpj] ? `<small class="muted" title="Dia em que o rascunho do aviso foi aberto">aviso em ${fmt(cfg.avisados[r.cnpj])}</small>` : ''}<button type="button" class="btn btn-sm" data-avisar="${esc(r.cnpj)}" title="Prepara o e-mail para o cliente no Zimbra (você confere e envia)">Avisar</button><button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button></span>`],
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e sem nenhum uso do portal registrado' : `Última atividade do cliente há ${r.dias} dias (${r.fonte || 'arquivo'})`] },
-  notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificação desativada',
-    hint: 'Alguém desmarcou "Via e-mail" e "Via sistema" em "A cada nova Solicitação de Serviço"', setores: r => String(r.setor || '').split(', ').filter(Boolean),
-    cols: [['Funcionário'], ['Nova solicitação'], ['Situação']],
-    row: r => r.motivo ? [`<span class="emp">${esc(r.nome)}</span>`, 'E-mail e sistema', badge(r.situacao === 'padrao' ? 'Sem configuração salva' : 'Desligado', r.situacao === 'padrao' ? 's-warn' : 's-late')]
+  notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificações fora do padrão',
+    hint: 'Configuração de notificações diferente da do usuário modelo', setores: r => String(r.setor || '').split(', ').filter(Boolean),
+    cols: [['Funcionário'], ['O que está diferente do padrão'], ['Situação']],
+    row: r => r.situacao === 'difere' ? [`<span class="emp">${esc(r.nome)}</span>`, esc(r.motivo), badge('Fora do padrão', 's-warn')]
       : [`<span class="emp">${esc(r.nome)}</span>`, 'Aviso de tarefa nova', badge('Desligado', 's-late')],
-    step: r => [`Notificação desativada · ${r.nome}`, r.motivo || 'Sem aviso de tarefa nova'] },
+    step: r => [`Notificações fora do padrão · ${r.nome}`, r.motivo || 'Sem aviso de tarefa nova'] },
 };
 const KEYS = Object.keys(TABS);
 
@@ -243,7 +243,7 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}${k === 'notificacoes' ? padraoNotifHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -385,6 +385,16 @@ function correcaoNomesHtml() {
     ${semId ? `<p class="note-txt" style="margin:8px 0 0"><b>${semId}</b> arquivo${semId === 1 ? '' : 's'} com proposta ${semId === 1 ? 'está' : 'estão'} sem o identificador do Onvio (leitura antiga). Rode <b>Coletar do Onvio</b> de novo para liberar o botão Corrigir.</p>` : ''}
     <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${prontas.length ? `<button type="button" class="btn btn-primary" data-corrigir-nomes>${corrigindo ? 'Parar a correção' : (primeiraCorrecao() ? 'Corrigir 1 arquivo (teste)' : `Corrigir ${Math.min(prontas.length, MAX_RODADA)} arquivo${prontas.length === 1 ? '' : 's'}`)}</button>` : ''}${ultimaRodada() && !corrigindo ? `<button type="button" class="btn" data-desfazer-nomes>Desfazer a última rodada (${ultimaRodada().feitos.length})</button>` : ''}</div>
     <p class="note-txt" style="margin:8px 0 0">Cada arquivo é conferido no Onvio antes e renomeado <b>um por vez</b>; nada é excluído nem movido. ${primeiraCorrecao() ? 'A primeira vez corrige <b>só 1 arquivo</b>, para você conferir no Onvio antes de continuar.' : ''}${correcoes.rodadas.length ? ` Já corrigidos: ${correcoes.rodadas.reduce((s, r) => s + r.feitos.length, 0)}.` : ''}</p></div>`;
+}
+// De onde vem o padrão das notificações: a configuração salva do usuário modelo (Configurações › Coleta do Onvio).
+function padraoNotifHtml() {
+  const m = nsnap && nsnap.modelo;
+  const txt = !nsnap ? 'As notificações ainda não foram lidas.'
+    : !m ? 'Defina o usuário modelo (o que está com a configuração padrão) em Coleta do Onvio › Notificações do escritório.'
+    : m.estado === 'configurado' ? `Padrão = a configuração de ${esc(m.nome)}. Quem nunca salvou configuração já aparece no Onvio com o padrão e não entra na lista.`
+    : m.estado === 'nao-achado' ? `O usuário modelo "${esc(m.nome)}" não foi encontrado na equipe do Onvio. Confira o nome em Coleta do Onvio › Notificações do escritório.`
+    : `${esc(m.nome)} nunca salvou a configuração, então a extensão não tem como ler o padrão. No Onvio, abra as notificações de ${esc(m.nome)} e clique em SALVAR sem mudar nada; na próxima leitura a comparação começa.`;
+  return `<p class="note-txt" style="margin:10px 16px 14px">${txt}</p>`;
 }
 function resumoDiaHtml() {
   const r = resumoDoDia(hist, new Date());

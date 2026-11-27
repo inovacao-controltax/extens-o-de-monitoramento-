@@ -13,6 +13,7 @@ export const DEFAULT_CONFIG = {
   autoLer: true,      // ler o Onvio sozinho, em segundo plano, quando os dados têm mais de horasAuto
   horasAuto: 6,
   gesttaCampo: '',    // caminho do campo "recebe notificação de tarefa nova" no cadastro do funcionário (vazio = detectar)
+  notifModelo: 'Patricia Barcelos',   // usuário do escritório cuja configuração de notificações É o padrão (Josué, 27/11/2026); quem difere dele está fora do padrão
   notifPadraoDesligado: true,   // funcionário SEM configuração salva (404) conta como desativado? Confirmado: no Onvio ele aparece com "nova Solicitação" desmarcada
   notifCampoEmail: '', notifCampoSistema: '',   // caminhos dos campos "nova Solicitação de Serviço" (vazio = detectar)
   hubCodigo: '',      // código de pareamento do Control Hub (o mesmo do Control Onvio): liga a extensão ao Hub para puxar os clientes treinados

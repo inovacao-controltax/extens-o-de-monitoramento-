@@ -413,19 +413,27 @@ test('lê a equipe toda: 200 = configurado, 404 = padrão; sem e-mail nem id na 
   assert.equal(r.itens.filter(i => i.estado === 'configurado').length, 12);
   assert.equal(r.itens.filter(i => i.estado === 'padrao').length, 28);
   assert.deepEqual(r.campos, { email: 'newServiceRequest.email', sistema: 'newServiceRequest.system' });
-  assert.deepEqual(Object.keys(r.itens[0]).sort(), ['email', 'estado', 'nome', 'sistema']);
+  assert.deepEqual(Object.keys(r.itens[0]).sort(), ['cfg', 'email', 'estado', 'nome', 'sistema']);      // cfg = só as opções (sim/não), para comparar com o padrão
+  assert.ok(Object.values(r.itens[0].cfg).every(v => typeof v === 'boolean' || typeof v === 'number' || /^[A-Za-z_]{1,30}$/.test(v)));
   assert.equal(r.itens[0].email, true); assert.equal(r.itens[1].email, false); assert.equal(r.itens[1].sistema, false);
 });
-test('regra: só e-mail E sistema desligados; sem configuração só com a chave', async () => {
-  const r = await lerNotificacoesEscritorio(fakeNotif({ n: 10, comConfig: 4 }));
-  // i ímpar: email false e system false (fake) => desligado
-  assert.equal(checkNotificacoesOnvio(r, {}).length, 2);
-  assert.equal(checkNotificacoesOnvio(r, { notifPadraoDesligado: true }).length, 2 + 6);
-  assert.equal(checkNotificacoesOnvio(r, { notifPadraoDesligado: true }).filter(x => x.situacao === 'padrao').length, 6);
+test('regra: fora do padrão = configuração diferente da do usuário modelo; sem configuração salva = padrão', () => {
+  const padrao = { newTicketEmail: false, newTicketSystem: false, newTopicEmail: true, newTopicEmailAllContacts: false, newTopicSystem: false, completedTopicEmail: false };
+  const notif = { modelo: { nome: 'Patricia Barcelos', estado: 'configurado', campos: padrao }, itens: [
+    { nome: 'Patricia Barcelos', estado: 'configurado', cfg: { ...padrao } },
+    { nome: 'Igual', estado: 'configurado', cfg: { ...padrao } },
+    { nome: 'Ligou nova', estado: 'configurado', cfg: { ...padrao, newTicketEmail: true, newTicketSystem: true } },
+    { nome: 'Todos os usuarios', estado: 'configurado', cfg: { ...padrao, newTopicEmailAllContacts: true } },
+    { nome: 'Nunca salvou', estado: 'padrao' }, { nome: 'Erro', estado: 'erro' } ] };
+  const r = checkNotificacoesOnvio(notif, {});
+  assert.deepEqual(r.map(x => x.nome), ['Ligou nova', 'Todos os usuarios']);
+  assert.match(r[0].motivo, /Nova Solicitação · e-mail/); assert.match(r[1].motivo, /Trâmite realizado/);
+  // sem o modelo salvo no Onvio, não há com o que comparar: ninguém entra
+  assert.deepEqual(checkNotificacoesOnvio({ ...notif, modelo: { nome: 'Patricia Barcelos', estado: 'padrao', campos: null } }, {}), []);
   assert.deepEqual(checkNotificacoesOnvio(null, {}), []);
 });
 test('analyze usa notif do Onvio quando existe', () => {
-  const a = analyze({ docs: [], trained: [], notif: { itens: [{ nome: 'A', estado: 'configurado', email: false, sistema: false }, { nome: 'B', estado: 'configurado', email: true, sistema: false }] } }, DEFAULT_CONFIG);
+  const p = { newTicketEmail: false }, a = analyze({ docs: [], trained: [], notif: { modelo: { nome: 'M', estado: 'configurado', campos: p }, itens: [{ nome: 'A', estado: 'configurado', cfg: { newTicketEmail: true } }, { nome: 'B', estado: 'configurado', cfg: { newTicketEmail: false } }] } }, DEFAULT_CONFIG);
   assert.equal(a.notificacoes.length, 1); assert.equal(a.notificacoes[0].nome, 'A');
 });
 test('erro de sessão na leitura da equipe interrompe tudo', async () => {

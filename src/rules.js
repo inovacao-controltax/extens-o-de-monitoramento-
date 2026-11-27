@@ -102,15 +102,27 @@ export function checkNotificacoes(users) {
     .sort((a, b) => (b.tarefasAtivas ?? 0) - (a.tarefasAtivas ?? 0));
 }
 
+/** Nome legível de um campo da configuração de notificações do Onvio. */
+const ROTULOS_NOTIF = { newTicket: 'Nova Solicitação', newTopic: 'Trâmite realizado', completedTopic: 'Trâmite concluído', concludedTopic: 'Trâmite concluído', forwardedTopic: 'Trâmite encaminhado', responsible: 'Vínculo de responsável', assign: 'Vínculo de responsável', document: 'Documento visualizado', cnd: 'Nova CND' };
+export function rotuloCampoNotif(c) {
+  const k = String(c).split('.').pop();
+  const base = Object.keys(ROTULOS_NOTIF).find(p => k.toLowerCase().startsWith(p.toLowerCase()));
+  const resto = (base ? k.slice(base.length) : k).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().replace(/^email$/, 'e-mail').replace(/^system$/, 'sistema').replace(/^email all contacts$/, 'e-mail (todos os usuários)').replace(/^system all contacts$/, 'sistema (todos os usuários)').replace(/^email scope$|^email type$/, 'e-mail (quem)').replace(/^system scope$|^system type$/, 'sistema (quem)');
+  return base ? `${ROTULOS_NOTIF[base]} · ${resto || 'opção'}` : k;
+}
 /**
- * Funcionários do escritório sem aviso de "nova Solicitação de Serviço" (e-mail e sistema desligados), lidos do Onvio.
- * Sem configuração salva (404) só entra se cfg.notifPadraoDesligado. Configuração lida sem os campos reconhecidos não entra.
+ * Funcionários do escritório com a configuração de notificações DIFERENTE do padrão (Josué, 27/11/2026: o padrão é a tela do usuário modelo,
+ * de fábrica a Patricia Barcelos: nova Solicitação desmarcada; trâmite realizado e vínculo de responsável por e-mail, "somente desse usuário").
+ * Quem nunca salvou configuração (404) aparece no Onvio com o padrão, então está no padrão e não entra. Sem o modelo salvo, não há com o que comparar.
  */
 export function checkNotificacoesOnvio(notif, cfg = {}) {
+  const mod = notif && notif.modelo, padrao = mod && mod.estado === 'configurado' && mod.campos ? mod.campos : null;
+  if (!padrao) return [];
   const out = [];
   for (const u of (notif && notif.itens) || []) {
-    if (u.estado === 'configurado' && u.email === false && u.sistema === false) out.push({ nome: u.nome, motivo: 'E-mail e sistema desligados', situacao: 'desligado' });
-    else if (u.estado === 'padrao' && cfg.notifPadraoDesligado) out.push({ nome: u.nome, motivo: 'Sem configuração salva (padrão do Onvio)', situacao: 'padrao' });
+    if (!u || u.estado !== 'configurado' || !u.cfg || u.nome === mod.nome) continue;
+    const difere = Object.keys(padrao).filter(k => k in u.cfg && u.cfg[k] !== padrao[k]);
+    if (difere.length) out.push({ nome: u.nome, campos: difere, motivo: difere.map(rotuloCampoNotif).slice(0, 4).join(', ') + (difere.length > 4 ? ` e mais ${difere.length - 4}` : ''), situacao: 'difere' });
   }
   return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
