@@ -705,3 +705,17 @@ test('medição: a data da pasta cobre o que está dentro? (só conta, não muda
   assert.equal(r.docs.filter(d => d.arquivo).length, 1);                       // a leitura continua igual
   assert.deepEqual(ESTAT.datas, { projetos: 1, projetosOk: 0, pastas: 1, pastasOk: 1 });   // o departamento NÃO acompanhou; a subpasta acompanhou
 });
+
+test('"ver no portal": a leitura guarda o endereço que o Onvio dá para cada pasta e para a empresa', async () => {
+  const f = async url => {
+    if (url.includes('storage/v1/projects')) return { data: [{ id: 'P', name: 'Fiscal', hasChildren: true, staffCenterViewPath: '/staff/#/documents/P' }, { id: 'Z', name: 'zlkx-c', hasChildren: false, staffCenterViewPath: '/staff/#/documents/Z' }] };
+    const id = /\/(Projects|Folders)\/([^/]+)\/children/.exec(url)[2];
+    if (id === 'P') return { data: { items: [{ id: 'F', name: '2026', type: 'folder', hasChildren: true, staffCenterViewPath: '/staff/#/documents/F' }] } };
+    return { data: { items: [{ id: 'd', name: 'a.pdf', mimeType: 'application/pdf' }] } };
+  };
+  const r = await lerEmpresa(f, { ids: ['c'], nome: 'A', cnpj: '1' }, { conhecidas: ['Fiscal'], soConhecidas: true, descer: ['Fiscal'], rapido: true });
+  assert.deepEqual(r.ver, { P: '/staff/#/documents/P', Z: '/staff/#/documents/Z', F: '/staff/#/documents/F' });
+  assert.equal(r.verEmpresa, '/staff/#/documents/P');
+  const c = await coletar(f, [{ ids: ['c'], codigo: '1', nome: 'A', cnpj: '11222333000181', inativo: false }], { conhecidas: ['Fiscal'], descer: ['Fiscal'], rapido: true });
+  assert.equal(c.ver.F, '/staff/#/documents/F'); assert.equal(c.verEmpresa['11222333000181'], '/staff/#/documents/P');
+});

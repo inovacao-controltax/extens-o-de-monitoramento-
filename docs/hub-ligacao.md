@@ -143,3 +143,10 @@ Terceira correção ligada: **Colocar no padrão** em Notificações (detalhes e
 
 ## Tabelas que cabem na tela e com mais espaço (0.35.2)
 (Josué, 27/11/2026: "o botão não tá aparecendo, e o espaçamento está muito pouco".) As células não podiam quebrar linha, e os recibos da DCTF Web têm nomes enormes sem espaço: a tabela passava da largura e as colunas "Enviado em" e o botão ficavam fora da tela. Agora o texto longo (empresa, pasta, arquivo) quebra onde precisar, e números, etiquetas e botões nunca quebram; a tabela cabe na largura e o botão da linha fica sempre à vista (conferido a 1366 px com empresa, pasta e arquivo longos). As linhas ganharam respiro: 12 px de cima e de baixo, 16 px dos lados e altura mínima de 52 px.
+
+## "Ver no portal" em todas as listas (0.36.0)
+(Josué, 27/11/2026: "pra quem quiser verificar e ter uma certeza maior".) Cada linha tem **Ver no portal ↗**, que abre o Onvio em outra aba:
+- **Nomenclatura:** a pasta onde está o arquivo; **Pastas fora do padrão:** a própria pasta; **Treinados sem envio** e **Últimos envios:** os documentos da empresa (matriz ou filial do mesmo grupo).
+- O endereço é o que o **próprio Onvio informa** na listagem de cada pasta (`staffCenterViewPath`), guardado na leitura (só o caminho, em `ver` e `verEmpresa` da última coleta). Só abre endereços do `onvio.com.br`. Aparece depois de uma **leitura nova** (Coletar do Onvio).
+- **Notificações:** o Onvio não informa o endereço dessa tela; a camada **aprende** quando a pessoa abre Configurações › Notificações dos usuários do escritório (guarda só o endereço, sem o identificador do funcionário, em `monitor-url-notif`). O link abre essa tela e **copia o nome do funcionário** para colar na busca. Antes de aprender, o link abre o Onvio e avisa o que fazer.
+**A conferir no Onvio real:** o formato do `staffCenterViewPath` (se abre direto a pasta).

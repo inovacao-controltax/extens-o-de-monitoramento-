@@ -33,6 +33,16 @@
   // Depois de a extensão ser atualizada ou recarregada com esta página aberta, este script fica "órfão": o endereço do painel deixa de existir
   // e o Chrome mostra "Este arquivo pode ter sido movido, editado ou excluído". Em vez disso, avisa e oferece recarregar a página.
   const vivo = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } };
+  // "Ver no portal" das notificações: o Onvio não informa o endereço da tela de notificações do escritório; a extensão aprende quando a pessoa
+  // abre essa tela (guarda só o endereço, sem o identificador de um funcionário). Confere a cada 2 s porque o Onvio troca de tela sem recarregar.
+  let ultimaUrl = '';
+  const aprenderUrl = () => {
+    if (!vivo() || location.href === ultimaUrl) return; ultimaUrl = location.href;
+    if (!/notifica/i.test(location.href)) return;
+    const limpa = location.href.replace(/\/[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}(?=[/?#]|$)/gi, '').replace(/\/[0-9a-f]{24,32}(?=[/?#]|$)/gi, '');
+    try { chrome.storage.local.set({ 'monitor-url-notif': limpa }); } catch (e) { /* extensão atualizada: a página antiga não grava */ }
+  };
+  aprenderUrl(); setInterval(aprenderUrl, 2000);
   function avisarOrfao() {
     root.getElementById('avt').textContent = 'A extensão foi atualizada e esta página ainda usa a versão antiga. Recarregue a página para abrir o painel.';
     av.hidden = false; v.hidden = false; b.hidden = true;
