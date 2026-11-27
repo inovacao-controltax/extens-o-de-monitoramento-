@@ -493,8 +493,15 @@ function hojeHtml() {
     } catch (e) { /* só o número */ }
     return 0;
   };
-  const kpis = `<div class="kpis">${KEYS.map(k => { const q = data(k).length, c = q ? corrigiveis(k) : 0, late = k === 'semEnvio' && q;
-    return `<button type="button" class="kpi" data-go="${k}"><span class="kpi-l">${late ? '<i class="kpi-dot"></i>' : ''}${esc(TABS[k].label)}</span><b class="kpi-n">${q.toLocaleString('pt-BR')}</b><span class="kpi-s">${q ? esc(SUB[k]) : 'tudo no padrão'}</span>${c ? `<span class="kpi-a">${c.toLocaleString('pt-BR')} com correção pronta</span>` : ''}</button>`; }).join('')}</div>`;
+  // Opção A com a barra da B (Josué, 27/11/2026): traço e fundo leve na cor da situação, ícone, etiqueta de situação e,
+  // nos monitores que têm correção automática, a barra de quanto já está pronto para corrigir (azul).
+  const SITUACAO = { 's-warn': 'Atenção', 's-soon': 'Atenção', 's-late': 'Atrasado' };
+  const COM_CORRECAO = new Set(['nomenclatura', 'pastas', 'notificacoes']);
+  const kpis = `<div class="kpis">${KEYS.map(k => {
+    const q = data(k).length, c = q ? corrigiveis(k) : 0, sev = q ? TABS[k].sev : 's-ok', fmtN = x => x.toLocaleString('pt-BR');
+    const barra = q && COM_CORRECAO.has(k) ? `<span class="kpi-barra" title="Azul: já tem correção pronta"><b style="width:${c ? Math.max(2, Math.round(c / q * 100)) : 0}%"></b></span><span class="kpi-a${c ? '' : ' zero'}">${c ? `${fmtN(c)} de ${fmtN(q)} com correção pronta` : 'nenhum com correção pronta'}</span>` : '';
+    return `<button type="button" class="kpi ${sev}" data-go="${k}"><span class="kpi-l"><span class="kpi-ic">${TABS[k].icon}</span>${esc(TABS[k].label)}</span><b class="kpi-n">${fmtN(q)}</b><span class="kpi-s">${q ? esc(SUB[k]) : 'tudo no padrão'}</span><span class="kpi-st"><i></i>${q ? SITUACAO[TABS[k].sev] || 'Atenção' : 'Em dia'}</span>${barra}</button>`;
+  }).join('')}</div>`;
   const all = KEYS.flatMap(k => data(k).map(r => ({ k, r }))).sort((a, b) => (TABS[a.k].sev === 's-late' ? 0 : 1) - (TABS[b.k].sev === 's-late' ? 0 : 1));
   const steps = all.slice(0, 5).map(({ k, r }) => { const [a, b] = TABS[k].step(r); return `<button type="button" class="step ${TABS[k].sev}" data-go="${k}"><i class="dot"></i><div><b>${esc(a)}</b><small>${esc(b)}</small></div>${I.right}</button>`; }).join('') || '<div class="empty"><b>Nada a acompanhar.</b></div>';
   const recados = recadosAtuais().filter(r => !state.dispensados.has(r.id));
