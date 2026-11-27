@@ -45,10 +45,33 @@ export function previsao(t0, feito, total, agora = Date.now()) {
 /** Lista de funcionários do escritório (para saber quem enviou cada arquivo); se não vier, a leitura segue com a dedução. */
 async function equipeSegura(f) { try { return await idsDaEquipe(f); } catch (e) { if (e instanceof AuthError) throw e; return null; } }
 let rodando = false;
+/**
+ * Por que uma leitura demorou (0.37.11; Josué mandou uma leitura de 10 min 29 s com o Onvio respondendo tão rápido quanto nas de 2 min 42 s):
+ * quanto tempo a aba do Onvio ficou em segundo plano e quantas vezes a página parou (5 s ou mais sem nenhuma resposta), que é o que o
+ * Chrome faz com aba escondida ou congelada. Só números.
+ */
+function medidorDaAba() {
+  let escondidaDesde = document.hidden ? Date.now() : 0, escondidaMs = 0, ultima = Date.now(), paradas = 0, paradoMs = 0;
+  const vis = () => { if (document.hidden) escondidaDesde = Date.now(); else if (escondidaDesde) { escondidaMs += Date.now() - escondidaDesde; escondidaDesde = 0; } };
+  document.addEventListener('visibilitychange', vis);
+  return {
+    chamada() { const agora = Date.now(), gap = agora - ultima; if (gap >= 5000) { paradas++; paradoMs += gap; } ultima = agora; },
+    fim() { document.removeEventListener('visibilitychange', vis); if (escondidaDesde) escondidaMs += Date.now() - escondidaDesde; return { segundoPlanoMs: escondidaMs, paradas, paradoMs }; },
+  };
+}
+/**
+ * Enquanto lê, a página segura uma "trava" do navegador (Web Locks): o Chrome não congela nem descarta uma aba que segura uma trava,
+ * e a leitura não para quando a aba do Onvio fica em segundo plano (a economia de energia congela abas escondidas).
+ */
+function segurarAba(fn) {
+  try { if (navigator.locks && navigator.locks.request) return navigator.locks.request('controlmon-leitura-' + idAba, () => fn()); } catch (e) { /* sem Web Locks */ }
+  return fn();
+}
 /** Leitura completa (ao vivo). */
 async function leituraCompleta(cfg, avisa) {
   const rotas = {};                                                            // quantas chamadas por rota (só nomes de rota sem ids, nunca dados)
-  const { base, f, lim } = criarFetcher({ onChamada: c => { rotas[c.rota] = (rotas[c.rota] || 0) + 1; } });
+  const aba = medidorDaAba();
+  const { base, f, lim } = criarFetcher({ onChamada: c => { rotas[c.rota] = (rotas[c.rota] || 0) + 1; aba.chamada(); } });
   try { const perfil = perfilDaSessao(await f(API + 'security/v1/session-and-bindings')); if (perfil === 'cliente') { avisa({ estado: 'cliente', fimEm: Date.now(), msg: 'Acesso de cliente: não lê.' }); return; } } catch (e) { /* sessão é só informativa */ }
   avisa({ estado: 'rodando', feito: 0, total: 0, msg: 'Lendo a lista de empresas…' });
   const { clientes, falhaCnd } = await listarClientes(f, { pausa, onLista: l => avisa({ estado: 'rodando', feito: 0, total: 0, msg: `Lendo a lista de empresas… ${l.lidos}${l.total ? ' de ' + l.total : ''}` }) });
@@ -67,8 +90,8 @@ async function leituraCompleta(cfg, avisa) {
     onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `${p.feito} de ${p.total} empresas${previsao(t0, p.feito, p.total)}` }); },
     onParcial: async p => { await saveSnapshot(montar(p, true)); } });
   const final = montar(r, !!r.qualidade.interrompida);
-  const ms = Date.now() - t0, e = lim.estatisticas();
-  final.desempenho = { ms, empresas: r.qualidade.lidas, falhas: r.qualidade.falhas, recuperadas: r.qualidade.recuperadas || 0, pastasVaziasPuladas: r.qualidade.pastasVaziasPuladas || 0, paginasPoupadas: r.qualidade.paginasPoupadas || 0, datasPastas: r.qualidade.datasPastas || null, chamadas: e.chamadas, chamadasPorSegundo: ms ? Math.round(e.chamadas / (ms / 1000) * 10) / 10 : 0, latenciaMediaMs: e.latenciaMediaMs, limiteFinal: e.limiteFinal, limitePico: e.limitePico, recuos: e.recuos, reducoesPorLentidao: e.reducoesPorLentidao, porRota: Object.fromEntries(Object.entries(rotas).sort((a, b) => b[1] - a[1]).slice(0, 6)) };
+  const ms = Date.now() - t0, e = lim.estatisticas(), daAba = aba.fim();
+  final.desempenho = { ...daAba, ms, empresas: r.qualidade.lidas, falhas: r.qualidade.falhas, recuperadas: r.qualidade.recuperadas || 0, pastasVaziasPuladas: r.qualidade.pastasVaziasPuladas || 0, paginasPoupadas: r.qualidade.paginasPoupadas || 0, datasPastas: r.qualidade.datasPastas || null, chamadas: e.chamadas, chamadasPorSegundo: ms ? Math.round(e.chamadas / (ms / 1000) * 10) / 10 : 0, latenciaMediaMs: e.latenciaMediaMs, limiteFinal: e.limiteFinal, limitePico: e.limitePico, recuos: e.recuos, reducoesPorLentidao: e.reducoesPorLentidao, porRota: Object.fromEntries(Object.entries(rotas).sort((a, b) => b[1] - a[1]).slice(0, 6)) };
   await saveSnapshot(final);
   if (!final.parcial) await saveSnapshotCompleto(final);                 // só uma leitura que terminou vira o "último resultado completo"
   avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: ativas, msg: `Leitura concluída: ${r.qualidade.lidas} empresas em ${duracao(ms)}` });
@@ -182,7 +205,7 @@ export async function rodarAgora({ onEstado } = {}) {
     if (!completa && !rapida) return;
     rodando = true;
     if (!(await pegarTrava())) { rodando = false; return; }
-    if (completa) await leituraCompleta(cfg, avisa); else if (rapida) await leituraRapida(cfg, snap, avisa);
+    await segurarAba(() => (completa ? leituraCompleta(cfg, avisa) : leituraRapida(cfg, snap, avisa)));
   } catch (e) {
     avisa({ estado: e instanceof AuthError ? 'sem_sessao' : 'erro', fimEm: Date.now(), msg: String(e && e.message || e).slice(0, 200) });
     // a leitura parou: o que já foi lido fica, mas a tela não pode continuar dizendo "lendo ao vivo"

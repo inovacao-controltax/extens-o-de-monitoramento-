@@ -160,6 +160,7 @@
   function consumirPedido() { if (!ver || !barra || barra.consumido) return; barra.consumido = true; try { chrome.storage.local.remove(ver.CHAVE_VER); } catch (e) { /* extensão atualizada */ } }
   function estadoBusca(cls, texto) {
     if (cls === 'ok' || cls === 'no') consumirPedido();
+    if (cls === 'no') setTimeout(() => mostrarDiagnostico(), 0);      // não achou: oferece copiar o que viu
     const st = vp.querySelector('.st'); if (!st) return;
     if (st.dataset.cls === cls && st.dataset.t === texto) return;
     st.dataset.cls = cls; st.dataset.t = texto; st.className = 'st ' + cls; st.innerHTML = `<i></i><span>${escH(texto)}</span>`;
@@ -194,15 +195,18 @@
   const visivelEl = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const textoProfundo = (max = 8000) => { let t = ''; for (const n of textos()) { t += ' ' + n.nodeValue; if (t.length > max) break; } return t; };
   // O nome do item no texto da tela (o que estiver visível; o igual ganha do parecido). Devolve a linha da lista, se for uma linha curta.
-  function acharNaTela(nome, pessoa = false) {
+  function acharNaTela(nome, pessoa = false, minimo = 1) {
     if (!ver || !document.body) return null;
     let melhor = null, nota = 0;
     for (const n of textos()) {
       const t = n.nodeValue; if (!t || t.length < 2 || t.length > 400) continue;
-      const c = Math.max(ver.casaTexto(t, nome), pessoa ? ver.casaNome(t, nome) : 0); if (!c || c <= nota) continue;
+      // pessoa: o texto igual ou as mesmas partes do nome (2); com partes a mais, só parecido (1). Nunca "contém" solto (outro analista)
+      const c = pessoa ? Math.max(ver.casaTexto(t, nome) === 2 ? 2 : 0, ver.casaNome(t, nome)) : ver.casaTexto(t, nome);
+      if (!c || c < minimo || c <= nota) continue;
       const el = n.parentElement; if (!el || !visivelEl(el)) continue;
       melhor = el; nota = c; if (c === 2) break;
     }
+    acharNaTela.nota = nota;
     if (!melhor) return null;
     const linha = melhor.closest('tr,[role="row"],li');
     if (linha) { const r = linha.getBoundingClientRect(); if (r.height && r.height <= 120) return linha; }
@@ -222,15 +226,59 @@
     if (!barra) return;
     const a = barra.alvo;
     if (!a.destaque) return;
+    if (document.hidden) return;                       // aba escondida: não varre a tela (a leitura do Onvio roda nesta mesma aba)
+    if (barra.paginando) return;                       // percorrendo as páginas: quem procura (e diz o estado) é a paginação
     if (!barra.el || !barra.el.isConnected) {
-      barra.el = acharNaTela(a.destaque, a.k === 'notificacoes');
+      barra.el = acharNaTela(a.destaque, a.k === 'notificacoes', barra.soExato ? 2 : 1);
+      barra.nota = barra.el ? acharNaTela.nota : 0;
       if (barra.el && !barra.rolou) { barra.rolou = true; try { barra.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } }
     }
     posicionar();
     if (barra.paginando && !barra.el) return;          // percorrendo as páginas da lista: o estado é dela
-    if (barra.el) estadoBusca('ok', barra.pagina ? `Em destaque na página ${barra.pagina} da lista (contorno azul).` : 'Em destaque na tela (contorno azul).');
-    else if (Date.now() - barra.t0 > 20000) estadoBusca('no', `Não apareceu nesta tela: role a lista ou procure pelo nome${a.copiado ? ' (já copiado: Ctrl+V na busca do Onvio)' : ''}.${barra.diag || a.k === 'notificacoes' ? ` [${[barra.diag, a.k === 'notificacoes' ? parecidoNaTela(a.destaque) : ''].filter(Boolean).join('; ')}]` : ''}`);
+    if (barra.el && a.k === 'notificacoes' && barra.nota === 1) estadoBusca('no', `Não achei exatamente ${a.destaque}. Em destaque o mais parecido: "${textoEl(barra.el).slice(0, 60)}". Confira antes de corrigir.`);
+    else if (barra.el) estadoBusca('ok', barra.pagina ? `Em destaque na página ${barra.pagina} da lista (contorno azul).` : 'Em destaque na tela (contorno azul).');
+    else if (Date.now() - barra.t0 > 20000) {
+      // desistiu: para de varrer a tela (varrer sem parar deixava a leitura do Onvio lenta) e diz o que viu
+      if (laco) { clearInterval(laco); laco = null; }
+      estadoBusca('no', `Não apareceu nesta tela: role a lista ou procure pelo nome${a.copiado ? ' (já copiado: Ctrl+V na busca do Onvio)' : ''}.${barra.diag || a.k === 'notificacoes' ? ` [${[barra.diag, a.k === 'notificacoes' ? parecidoNaTela(a.destaque) : ''].filter(Boolean).join('; ')}]` : ''}`);
+      mostrarDiagnostico();
+    }
     else estadoBusca('', 'Procurando na tela do Onvio…');
+  }
+  // "Copiar diagnóstico" (0.37.11): quando não acha, o quadro oferece copiar o que a camada viu na tela, para corrigir sem adivinhar.
+  // Só a estrutura (endereço sem identificadores, paginação, campos, botões, quantas linhas) e até 3 textos da lista para ver o formato dos nomes.
+  function diagnosticoTela() {
+    const a = barra && barra.alvo; if (!a) return '';
+    const pag = lerPaginacao(), ir = acharIrAPagina(), prox = acharProxima(), busca = acharCampoBusca(false);
+    const linhas = []; for (const el of elementos()) { if (el.matches && el.matches('tr, [role="row"]') && visivelEl(el)) linhas.push(el); if (linhas.length > 60) break; }
+    const amostra = linhas.slice(1, 4).map(l => textoEl(l).slice(0, 60));
+    const desc = el => el ? `${el.tagName.toLowerCase()}${el.getAttribute('type') ? '[' + el.getAttribute('type') + ']' : ''}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}${textoEl(el) ? ' "' + textoEl(el).slice(0, 15) + '"' : ''}${el.getAttribute('aria-label') ? ' aria="' + el.getAttribute('aria-label').slice(0, 20) + '"' : ''}` : 'não achado';
+    return [
+      `Diagnóstico do Ver no portal · versão ${chrome.runtime.getManifest().version}`,
+      `Tela: ${location.origin}${semIds(location.pathname)} · procurando: ${a.destaque} (${a.k})`,
+      `Situação: ${(vp.querySelector('.st') || {}).textContent || ''}`,
+      `Paginação: ${pag ? `página ${pag.atual} de ${pag.total}` : 'não achada'} · Ir a página: ${ir ? `${desc(ir.campo)} + ${desc(ir.botao)}` : 'não achado'} · próxima: ${desc(prox)}`,
+      barra.diagPag ? `Troca de página: ${JSON.stringify(barra.diagPag)}` : '',
+      `Campo de busca: ${desc(busca)} · linhas de tabela visíveis: ${linhas.length} · componentes: ${vistos.sombras} · quadros: ${vistos.quadros}`,
+      `Amostra da lista: ${amostra.map(x => '"' + x + '"').join(' | ') || '—'}`,
+      `Mais parecido: ${parecidoNaTela(a.destaque)}`,
+    ].filter(Boolean).join('\n');
+  }
+  function mostrarDiagnostico() {
+    if (!barra || vp.querySelector('[data-a="diag"]')) return;
+    const bts = vp.querySelector('.bts'); if (!bts) return;
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.a = 'diag'; b.textContent = 'Copiar diagnóstico';
+    b.title = 'Copia o que a extensão viu nesta tela, para mandar a quem cuida da extensão';
+    b.addEventListener('click', async e => {
+      if (!e.isTrusted) return;
+      const t = diagnosticoTela(); let ok = false;
+      try { await navigator.clipboard.writeText(t); ok = true; } catch (x) {
+        try { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; root.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (y) { /* sem cópia */ }
+      }
+      b.textContent = ok ? 'Diagnóstico copiado' : 'Não deu para copiar';
+      setTimeout(() => { b.textContent = 'Copiar diagnóstico'; }, 3000);
+    });
+    bts.appendChild(b);
   }
   // o texto da tela mais parecido com o nome procurado (só para dizer no quadro o que a tela mostra, quando não acha)
   function parecidoNaTela(nome) {
@@ -338,6 +386,26 @@
     }
     return null;
   }
+  // a lista mudou? (assinatura do texto da tela, para não procurar o nome antes de a página nova chegar)
+  const assinaturaTela = () => { let t = '', k = 0; for (const n of textos(20000)) { t += '|' + n.nodeValue; if (++k > 4000) break; } let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return h + ':' + t.length; };
+  // a seta "próxima página" da paginação (pelo nome, pela setinha ou, entre os 4 botões de navegação, o terceiro)
+  function acharProxima() {
+    for (const el of elementos()) {
+      if (el.childElementCount > 4) continue;
+      const t = el.textContent; if (!t || t.length > 40 || !ver.paginaDe(t) || !visivelEl(el)) continue;
+      let c = el.parentElement;
+      for (let k = 0; k < 4 && c; k++, c = c.parentElement) {
+        const bts = [...c.querySelectorAll('button, a, [role="button"]')].filter(visivelEl);
+        const pelaDica = bts.find(b => /pr[oó]xim|next|seguinte|avan[cç]/i.test([b.getAttribute('aria-label'), b.title, b.getAttribute('ng-click'), b.className].filter(Boolean).join(' ')));
+        if (pelaDica) return pelaDica;
+        const pelaSeta = bts.find(b => /^(›|>|»|→)$/.test(textoEl(b)));
+        if (pelaSeta) return pelaSeta;
+        const nav = bts.filter(b => !textoEl(b) || /^[‹›<>«»|]+$/.test(textoEl(b)));
+        if (nav.length === 4) return nav[2];
+      }
+    }
+    return null;
+  }
   function irParaPagina(n) {
     const ir = acharIrAPagina(); if (!ir) return false;
     const v = ir.campo.ownerDocument.defaultView || window, set = Object.getOwnPropertyDescriptor(v.HTMLInputElement.prototype, 'value').set;
@@ -353,28 +421,60 @@
     if (!ativo0()) return;
     const gen = barra.gen = (barra.gen || 0) + 1, ativo = () => ativo0() && !!barra && barra.gen === gen;     // uma procura por vez
     if (laco) clearInterval(laco);
-    Object.assign(barra, { t0: Date.now(), el: null, rolou: false, diag: '', pagina: 0, paginando: false });
+    Object.assign(barra, { t0: Date.now(), el: null, rolou: false, diag: '', pagina: 0, paginando: false, soExato: true, parecida: null });
     procurar(); laco = setInterval(procurar, 500);
     await esperaMs(2500);                                   // a grade termina de carregar
     if (!ativo() || barra.el) return;
     const pag = lerPaginacao();
+    if (!(pag && pag.total > 1)) setTimeout(() => { if (ativo() && barra && !barra.el) barra.soExato = false; }, 6000);
     if (pag && pag.total > 1 && acharIrAPagina()) {
       barra.paginando = true;
       try {
+        let modo = 'ir';
+        barra.diagPag = { total: pag.total, ir: !!acharIrAPagina(), proxima: !!acharProxima(), trocou: 0, naoTrocou: 0, modo };
         for (let i = 1; i < pag.total && ativo() && !barra.el; i++) {
-          const n = ((pag.atual - 1 + i) % pag.total) + 1;
+          const n = ((pag.atual - 1 + i) % pag.total) + 1, antes = assinaturaTela();
           estadoBusca('', `Procurando ${alvo.destaque} na página ${n} de ${pag.total}…`);
-          if (!irParaPagina(n)) { barra.diag = 'não consegui trocar de página'; break; }
-          for (let t = 0; t < 20 && ativo(); t++) { await esperaMs(300); const p = lerPaginacao(); if (p && p.atual === n) break; }
-          await esperaMs(350);
+          const trocar = () => (modo === 'ir' ? irParaPagina(n) : (() => { const b = acharProxima(); if (b) clicarNavegacao(b); return !!b; })());
+          if (!trocar()) { barra.diag = 'não consegui trocar de página'; break; }
+          let ok = false;
+          for (let t = 0; t < 25 && ativo(); t++) {         // até 7,5 s: a paginação mostra a página nova e a lista muda
+            await esperaMs(300);
+            const p = lerPaginacao();
+            if (p && p.atual === n && assinaturaTela() !== antes) { ok = true; break; }
+          }
           if (!ativo()) return;
-          const el = acharNaTela(alvo.destaque, true);
-          if (el) { barra.el = el; barra.pagina = n; barra.rolou = true; try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } }
+          if (!ok && modo === 'ir' && acharProxima()) {     // o "Ir" não trocou a página: tenta pela seta de próxima
+            modo = barra.diagPag.modo = 'seta'; barra.diagPag.naoTrocou++;
+            const p0 = lerPaginacao(); if (p0 && p0.atual !== n - 1) { barra.diag = `o "Ir a página" não trocou a página (ficou na ${p0.atual})`; }
+            const b = acharProxima(); if (b) { clicarNavegacao(b); for (let t = 0; t < 25 && ativo(); t++) { await esperaMs(300); const p = lerPaginacao(); if (p && p.atual === n) { ok = true; break; } } }
+          }
+          if (ok) barra.diagPag.trocou++; else barra.diagPag.naoTrocou++;
+          await esperaMs(400);                               // a grade termina de desenhar as linhas
+          for (let t = 0; t < 4 && ativo() && !barra.el; t++) {
+            const el = acharNaTela(alvo.destaque, true, 2);
+            if (el) { barra.el = el; barra.pagina = n; barra.rolou = true; try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } break; }
+            if (!barra.parecida) { const q = acharNaTela(alvo.destaque, true, 1); if (q) barra.parecida = { pagina: n, texto: textoEl(q).slice(0, 60) }; }
+            await esperaMs(300);
+          }
+          if (barra.diagPag.naoTrocou >= 3 && !barra.diagPag.trocou) { barra.diag = 'a página da lista não troca (nem pelo "Ir a página" nem pela seta)'; break; }
         }
       } finally { if (barra) { barra.paginando = false; if (barra.el && !barra.pagina) barra.pagina = (lerPaginacao() || {}).atual || 0; } }
       if (!ativo() || barra.el) return;
       if (laco) { clearInterval(laco); laco = null; }
-      return estadoBusca('no', `Não achei ${alvo.destaque} nas ${pag.total} páginas da lista. [${[barra.diag, parecidoNaTela(alvo.destaque)].filter(Boolean).join('; ')}]`);
+      barra.soExato = false;
+      if (barra.parecida) {      // nenhum com o nome exato: aponta o parecido (outro formato ou nome mais longo) e diz em que página está
+        const pq = barra.parecida;
+        if (barra.diagPag && barra.diagPag.modo === 'ir' && irParaPagina(pq.pagina)) {
+          await esperaMs(1500); if (!ativo()) return;
+          Object.assign(barra, { t0: Date.now(), el: null, rolou: false, pagina: pq.pagina });
+          if (laco) clearInterval(laco); laco = setInterval(procurar, 700); procurar();
+          return;
+        }
+        return estadoBusca('no', `Não achei exatamente ${alvo.destaque}. O mais parecido está na página ${pq.pagina}: "${pq.texto}". Confira antes de corrigir.`);
+      }
+      estadoBusca('no', `Não achei ${alvo.destaque} nas ${pag.total} páginas da lista. [${[barra.diag, parecidoNaTela(alvo.destaque)].filter(Boolean).join('; ')}]`);
+      return mostrarDiagnostico();
     }
     const buscar = (valor, rotulo) => {
       if (!ativo() || !barra || barra.el) return false;
