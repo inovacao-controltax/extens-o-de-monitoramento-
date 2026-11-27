@@ -12,6 +12,7 @@ import { corrigirNomes, desfazerNomes, MOTIVOS_FALHA } from '../src/corrigir-esc
 import { gruposExcluiveis, enviarPastasParaLixeira, liberadoComConteudo, MOTIVOS_PASTA } from '../src/excluir-pastas.js';
 import { confirmModal } from './config-view.js';
 import { copiarTexto } from '../src/copiar.js';
+import { urlDoOnvio, voltaDaUrl, voltaSegura } from '../src/ver-portal.js';
 import { corpoDoPadrao, corrigirNotificacoes, desfazerNotificacoes, MOTIVOS_NOTIF } from '../src/corrigir-notif.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
@@ -47,15 +48,12 @@ const sector = s => `<span class="sector ${secClass(s)}">${esc(s)}</span>`;
 const badge = (t, c) => `<span class="badge ${c}">${esc(t)}</span>`;
 const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil'];
 
-// ---- "Ver no portal" (Josué, 27/11/2026: "pra quem quiser verificar e ter uma certeza maior") ----
-// O endereço vem do próprio Onvio (staffCenterViewPath de cada pasta, guardado na leitura). Só abre endereços do onvio.com.br.
+// ---- "Ver no portal" (0.37.0; Josué, 27/11/2026: "ver no portal seria a extensão sair de cima do portal para o funcionário ver o que foi
+// alterado antes de enviar a alteração"). Não abre link nem outra aba: a camada sai da frente e o Onvio que está por baixo vai até o item
+// (src/overlay.js), com uma barra do que vai mudar; "Voltar e corrigir" volta a esta linha e abre a correção com a confirmação de sempre.
+// O endereço é o que o próprio Onvio dá para cada pasta (staffCenterViewPath, guardado na leitura); o das notificações, o aprendido.
 let urlNotifOnvio = '';      // tela de notificações do Onvio, aprendida quando a pessoa a abre (a camada guarda o endereço)
-function urlOnvio(caminho) {
-  const c = String(caminho || '').trim(); if (!c) return '';
-  let u; try { u = new URL(/^https?:/i.test(c) ? c : c.startsWith('/') ? 'https://onvio.com.br' + c : 'https://onvio.com.br/' + c); } catch (e) { return ''; }
-  return u.protocol === 'https:' && /(^|\.)onvio\.com\.br$/i.test(u.hostname) ? u.href : '';
-}
-const linkPortal = (url, titulo, extra = '') => url ? `<a class="ver-portal" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(titulo)}"${extra}>Ver no portal ↗</a>` : '';
+const urlOnvio = urlDoOnvio;
 const verPasta = id => urlOnvio(real() && real().ver && real().ver[id]);
 function verEmpresaUrl(cnpj) {
   const m = (real() && real().verEmpresa) || {}; if (m[cnpj]) return urlOnvio(m[cnpj]);
@@ -78,8 +76,71 @@ const acaoPasta = r => {
   if (r.vazia === false && liberadoComConteudo(r.pasta, cfg.pastasLixeiraComConteudo)) return `<button type="button" class="btn btn-sm btn-danger" data-lixeira-um-conteudo="${esc(r.pastaId)}" data-nome="${esc(r.pasta)}" title="Você liberou esta pasta para ir à lixeira mesmo com conteúdo">Lixeira (com conteúdo)</button>`;
   return '';
 };
-const linkNotif = r => linkPortal(urlNotifOnvio || 'https://onvio.com.br/', urlNotifOnvio ? `Abre as notificações do escritório no Onvio e copia o nome de ${r.nome} para colar na busca` : 'Abra uma vez Configurações › Notificações dos usuários do escritório no Onvio para a extensão aprender o endereço', ` data-copiar-nome="${esc(r.nome)}"`);
 const acaoNotif = r => r.contato && corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos) ? `<button type="button" class="btn btn-sm btn-acao" data-notif-um="${esc(r.contato)}">Colocar no padrão</button>` : '';
+// O que a barra do Onvio mostra para cada linha (só texto e o endereço; a barra confere de novo em src/ver-portal.js).
+const verAlvos = new Map();      // "lista:id" -> pedido, refeito a cada desenho
+const idLinha = (k, r) => k === 'nomenclatura' ? (r.docId || `${r.cnpj}|${r.pasta}|${r.arquivo}`) : k === 'pastas' ? (r.pastaId || `${r.cnpj}|${r.pasta}`) : k === 'notificacoes' ? (r.contato || r.nome) : r.cnpj;
+const empresaCnpj = r => `${r.empresa} · ${formatCnpj(r.cnpj)}`;
+const SEM_URL_PASTA = 'Ainda não tenho o endereço desta pasta no Onvio: rode Coletar do Onvio de novo, ou procure pela empresa e pela pasta acima.';
+const SEM_URL_EMPRESA = 'Ainda não tenho o endereço dos documentos desta empresa no Onvio: rode Coletar do Onvio de novo, ou procure pela empresa acima.';
+function alvoDe(k, r) {
+  const id = idLinha(k, r);
+  if (k === 'nomenclatura') {
+    const p = propostaNomes.get(r.docId), tem = /data-corrigir-(um|manual)=/.test(acaoNome(r));
+    return { k, id, titulo: 'Arquivo com nome fora do padrão', url: verPasta(r.pastaId), linhas: [['Empresa', empresaCnpj(r)], ['Pasta', r.pasta], ['Arquivo', r.arquivo]],
+      mudanca: p ? `Ao corrigir, vai ficar: ${p}` : tem ? 'Sem competência no nome nem na pasta: ao corrigir, você digita a competência.' : '', destaque: r.arquivo, acao: tem ? 'Voltar e corrigir' : '', semUrl: SEM_URL_PASTA };
+  }
+  if (k === 'pastas') {
+    const tem = /data-lixeira-um(-conteudo)?=/.test(acaoPasta(r));
+    return { k, id, titulo: 'Pasta fora do padrão', url: verPasta(r.pastaId), linhas: [['Empresa', empresaCnpj(r)], ['Pasta', r.pasta], ['Conteúdo', textoConteudoPasta(r)]],
+      mudanca: tem ? 'Ao corrigir, a pasta vai para a lixeira do Onvio (dá para restaurar de lá).' : 'Esta pasta não tem correção automática: confira e resolva no Onvio.', destaque: r.pasta, acao: tem ? 'Voltar e enviar para a lixeira' : '', semUrl: SEM_URL_PASTA };
+  }
+  if (k === 'notificacoes') {
+    const tem = /data-notif-um=/.test(acaoNotif(r));
+    return { k, id, titulo: 'Notificações fora do padrão', url: urlNotifOnvio, linhas: [['Funcionário', r.nome], ['Diferente do padrão', r.motivo || 'Sem aviso de tarefa nova']],
+      mudanca: tem ? `Ao corrigir, as opções de Solicitações de Serviço ficam iguais às de ${nsnap.modelo.nome}.` : '', destaque: r.nome, acao: tem ? 'Voltar e colocar no padrão' : '',
+      semUrl: 'Abra uma vez Configurações › Notificações dos usuários do escritório no Onvio: a extensão aprende o endereço e da próxima vez vai direto.' };
+  }
+  const ultimo = k === 'semEnvio' ? (r.dias === null ? 'nenhum registrado' : `há ${r.dias} dias (${r.fonte || 'arquivo'})`) : (r.data ? `${fmt(r.data)}, há ${r.dias} dias (${r.fonte || 'arquivo'})` : 'nenhum registrado');
+  return { k, id, titulo: k === 'semEnvio' ? 'Treinado sem envio' : 'Último uso do portal', url: verEmpresaUrl(r.cnpj),
+    linhas: [['Empresa', empresaCnpj(r)], ...(k === 'semEnvio' && r.demanda && r.demanda.length ? [['Demanda', r.demanda.join(', ')]] : []), ['Último envio', ultimo]], mudanca: '', destaque: '', acao: '', semUrl: SEM_URL_EMPRESA };
+}
+const botaoVer = (k, r) => { const ch = `${k}:${idLinha(k, r)}`; verAlvos.set(ch, alvoDe(k, r)); return `<button type="button" class="btn btn-sm ver-portal" data-ver="${esc(ch)}" title="A extensão sai da frente e mostra este item no Onvio, antes de qualquer alteração">${I.eye}Ver no portal</button>`; };
+async function verNoPortal(ch) {
+  const a = verAlvos.get(ch); if (!a) return;
+  if (corrigindo) return toast('Espere a correção em andamento terminar.', 'warn');
+  const alvo = { ...a };
+  if (alvo.k === 'notificacoes' && alvo.destaque) alvo.copiado = await copiarTexto(alvo.destaque);      // para colar na busca das notificações do Onvio
+  const pai = (location.ancestorOrigins && location.ancestorOrigins[0]) || '';
+  if (camada && pai === 'https://onvio.com.br') return parent.postMessage({ tipo: 'controlmon-ver', alvo }, pai);
+  let r; try { r = await chrome.runtime.sendMessage({ tipo: 'ver-no-portal', alvo }); } catch (e) { r = { ok: false, msg: String(e && e.message || e) }; }
+  if (!r || !r.ok) toast((r && r.msg) || 'Não deu para mostrar no Onvio.', 'warn');
+}
+// Volta do Onvio para a mesma linha (e, com "Voltar e corrigir", a correção dela abre pedindo a confirmação de sempre).
+function irParaLinha(vt, tentativas = 0) {
+  if (!vt || (vt.k !== 'envios' && !TABS[vt.k])) return;
+  const { k, id } = vt;
+  if (k === 'notificacoes' && !nsnap && tentativas < 15) return setTimeout(() => irParaLinha(vt, tentativas + 1), 300);
+  if (TABS[k]) {
+    state.open[k] = true;
+    let idx = data(k).findIndex(r => idLinha(k, r) === id);
+    if (idx < 0 && (term() || state.setor !== 'Todos')) { $('search').value = ''; state.setor = 'Todos'; idx = data(k).findIndex(r => idLinha(k, r) === id); }
+    if (idx >= (state.lim[k] || LIM)) state.lim[k] = idx + 1;
+  }
+  state.view = k; render(true);
+  requestAnimationFrame(() => focarLinha(vt, true));
+}
+function focarLinha({ k, id, corrigir }, tentar) {
+  const btn = [...$('view').querySelectorAll('[data-ver]')].find(x => x.dataset.ver === `${k}:${id}`), tr = btn && btn.closest('tr');
+  if (!tr) {
+    if (tentar && k === 'envios') { state.lim.envios = 100000; render(false); return requestAnimationFrame(() => focarLinha({ k, id, corrigir }, false)); }
+    return toast('Essa linha não está mais na lista: já foi resolvida ou a leitura mudou.', 'warn');
+  }
+  tr.scrollIntoView({ block: 'center' }); tr.classList.remove('linha-foco'); void tr.offsetWidth; tr.classList.add('linha-foco');
+  if (!corrigir) return btn.focus({ preventScroll: true });
+  const a = tr.querySelector('[data-corrigir-um],[data-corrigir-manual],[data-lixeira-um],[data-lixeira-um-conteudo],[data-notif-um]');
+  if (a && !a.disabled) a.click(); else toast('Esta linha não tem correção automática.', 'warn');
+}
 // Janela para o arquivo sem competência: a pessoa digita a competência e confere o nome novo (pode ajustar). Nada é chutado.
 function pedirNomeNovo(l, re) {
   return new Promise(resolve => {
@@ -130,12 +191,12 @@ const TABS = {
   nomenclatura: { label: 'Nomenclatura', icon: I.file, sev: 's-warn', title: 'Arquivos com nome fora do padrão',
     hint: 'Enviados pelo cliente, fora do padrão de nome', setores: r => [r.setor],
     cols: [['Empresa'], ['CNPJ', 'num'], ['Setor', 'col-sec'], ['Pasta', 'col-sec'], ['Arquivo'], ['Enviado em', 'num r'], ['', 'r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), sector(r.setor), esc(r.pasta), `${esc(r.arquivo)}${propostaNomes.get(r.docId) ? `<br><small class="prop">→ ${esc(propostaNomes.get(r.docId))}</small>` : ''}`, fmt(r.data), celulaAcoes(linkPortal(verPasta(r.pastaId), 'Abre no Onvio a pasta onde está o arquivo'), acaoNome(r))],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), sector(r.setor), esc(r.pasta), `${esc(r.arquivo)}${propostaNomes.get(r.docId) ? `<br><small class="prop">→ ${esc(propostaNomes.get(r.docId))}</small>` : ''}`, fmt(r.data), celulaAcoes(botaoVer('nomenclatura', r), acaoNome(r))],
     step: r => [`Arquivo fora do padrão · ${r.empresa}`, `${r.pasta} · ${r.arquivo}`] },
   pastas: { label: 'Pastas fora do padrão', icon: I.folder, sev: 's-warn', title: 'Empresas com pasta fora do padrão',
     hint: 'Pasta de primeiro nível que não está na estrutura oficial', setores: () => [],
     cols: [['Empresa'], ['CNPJ', 'num'], ['Pasta encontrada'], ['Conteúdo', 'r'], ['', 'r']],
-    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), conteudoPasta(r), celulaAcoes(linkPortal(verPasta(r.pastaId), 'Abre a pasta no Onvio'), acaoPasta(r))],
+    row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), esc(r.pasta), conteudoPasta(r), celulaAcoes(botaoVer('pastas', r), acaoPasta(r))],
     step: r => [`Pasta fora do padrão · ${r.empresa}`, `"${r.pasta}" · ${textoConteudoPasta(r)}`] },
   semEnvio: { label: 'Treinados sem envio', icon: I.clock, sev: 's-late', title: 'Clientes treinados que não estão enviando',
     hint: 'Treinados, com demanda, sem envio recente no portal', setores: r => r.demanda,
@@ -143,13 +204,13 @@ const TABS = {
     row: r => [`<span class="emp">${esc(r.empresa)}</span>`, esc(formatCnpj(r.cnpj)), fmt(r.treinadoEm), r.demanda.map(sector).join(''),
       r.dias === null ? '<span class="muted">nenhum registrado</span>' : `há ${r.dias} dias <span class="muted">· ${esc(r.fonte || 'arquivo')}</span>`,
       r.dias === null ? badge('Nenhum envio registrado', 's-late') : badge(`${r.dias} dias sem envio`, 's-warn'),
-      `<span style="display:inline-flex;gap:6px;align-items:center">${(cfg.avisados || {})[r.cnpj] ? `<small class="muted" title="Dia em que o rascunho do aviso foi aberto">aviso em ${fmt(cfg.avisados[r.cnpj])}</small>` : ''}<button type="button" class="btn btn-sm btn-acao" data-avisar="${esc(r.cnpj)}" title="Prepara o e-mail para o cliente no Zimbra (você confere e envia)">Avisar</button><button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button>${linkPortal(verEmpresaUrl(r.cnpj), 'Abre os documentos da empresa no Onvio')}</span>`],
+      `<span style="display:inline-flex;gap:6px;align-items:center">${(cfg.avisados || {})[r.cnpj] ? `<small class="muted" title="Dia em que o rascunho do aviso foi aberto">aviso em ${fmt(cfg.avisados[r.cnpj])}</small>` : ''}<button type="button" class="btn btn-sm btn-acao" data-avisar="${esc(r.cnpj)}" title="Prepara o e-mail para o cliente no Zimbra (você confere e envia)">Avisar</button><button type="button" class="btn btn-sm" data-sil="${esc(r.cnpj)}" title="Não acompanhar esta empresa por um tempo (sem movimento, férias coletivas…)">Silenciar</button>${botaoVer('semEnvio', r)}</span>`],
     step: r => [`Sem envio no portal · ${r.empresa}`, r.dias === null ? 'Treinado e sem nenhum uso do portal registrado' : `Última atividade do cliente há ${r.dias} dias (${r.fonte || 'arquivo'})`] },
   notificacoes: { label: 'Notificações', icon: I.bellOff, sev: 's-soon', title: 'Funcionários com notificações fora do padrão',
     hint: 'Configuração de notificações diferente da do usuário modelo', setores: r => String(r.setor || '').split(', ').filter(Boolean),
     cols: [['Funcionário'], ['O que está diferente do padrão'], ['Situação'], ['', 'r']],
-    row: r => r.situacao === 'difere' ? [`<span class="emp">${esc(r.nome)}</span>`, esc(r.motivo), badge('Fora do padrão', 's-warn'), celulaAcoes(linkNotif(r), acaoNotif(r))]
-      : [`<span class="emp">${esc(r.nome)}</span>`, 'Aviso de tarefa nova', badge('Desligado', 's-late'), ''],
+    row: r => r.situacao === 'difere' ? [`<span class="emp">${esc(r.nome)}</span>`, esc(r.motivo), badge('Fora do padrão', 's-warn'), celulaAcoes(botaoVer('notificacoes', r), acaoNotif(r))]
+      : [`<span class="emp">${esc(r.nome)}</span>`, 'Aviso de tarefa nova', badge('Desligado', 's-late'), celulaAcoes(botaoVer('notificacoes', r))],
     step: r => [`Notificações fora do padrão · ${r.nome}`, r.motivo || 'Sem aviso de tarefa nova'] },
 };
 const KEYS = Object.keys(TABS);
@@ -304,7 +365,7 @@ function enviosHtml() {
   return `<div class="toolbar"><span class="grow">${base.length} empresa${base.length === 1 ? '' : 's'}</span>
       <div class="seg" role="group" aria-label="Situação">${chip('todas', 'Todas', base.length)}${chip('uso', 'Em uso', cont.uso)}${chip('sem', 'Sem uso', cont.sem)}${chip('semreg', 'Sem registro', cont.semreg)}${demandaHub ? chip('semdem', 'Sem demanda', cont.semdem) : ''}</div>
       <div class="seg" role="group" aria-label="Quais empresas"><button type="button" data-env-trein="0" aria-pressed="${!state.soTreinadas}">Todas as lidas</button><button type="button" data-env-trein="1" aria-pressed="${!!state.soTreinadas}">Só treinadas</button></div></div>
-    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último uso</th><th>Há</th><th>Origem</th><th>Demanda</th><th>Situação</th><th></th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${r.comDemanda === null ? '<span class="muted" title="O Hub não conhece a empresa ou a demanda ainda não foi puxada">—</span>' : r.comDemanda ? esc(r.setoresDemanda.join(', ')) : '<span class="muted">nenhuma</span>'}</td><td>${sit(r)}</td><td class="r">${linkPortal(verEmpresaUrl(r.cnpj), 'Abre os documentos da empresa no Onvio')}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${total}${total > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span style="max-width:62ch;text-align:right">${esc(nota)}</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
+    <section class="blk"><div class="blk-b">${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Treinada</th><th>Último uso</th><th>Há</th><th>Origem</th><th>Demanda</th><th>Situação</th><th></th></tr></thead><tbody>${rows.slice(0, lim).map(r => `<tr><td><span class="emp">${esc(r.empresa)}</span></td><td class="num">${esc(formatCnpj(r.cnpj))}</td><td>${r.treinada ? badge('Sim', 's-ok') : '<span class="muted">—</span>'}</td><td class="num">${r.data ? fmt(r.data) : '<span class="muted">—</span>'}</td><td class="num">${r.dias === null ? '—' : r.dias + ' dias'}</td><td>${esc(r.fonte || '—')}${r.detalhe ? ` <span class="muted" title="${esc(r.detalhe)}">· ${esc(r.detalhe.length > 34 ? r.detalhe.slice(0, 33) + '…' : r.detalhe)}</span>` : ''}</td><td>${r.comDemanda === null ? '<span class="muted" title="O Hub não conhece a empresa ou a demanda ainda não foi puxada">—</span>' : r.comDemanda ? esc(r.setoresDemanda.join(', ')) : '<span class="muted">nenhuma</span>'}</td><td>${sit(r)}</td><td class="r">${botaoVer('envios', r)}</td></tr>`).join('')}</tbody></table></div><div class="tbl-foot"><span>${Math.min(rows.length, lim)} de ${total}${total > lim ? ` · <button class="btn btn-sm" data-mais="envios" type="button">Mostrar mais ${LIM}</button>` : ''}</span><span style="max-width:62ch;text-align:right">${esc(nota)}</span></div>` : '<div class="empty"><b>Nada neste filtro.</b></div>'}</div></section>`;
 }
 // Nenhuma treinada sem envio: mostra POR QUE (cada empresa com a última atividade e de onde veio), para dar para conferir a leitura.
 function emDiaHtml() {
@@ -634,7 +695,7 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-lixeira]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeira)));
-  v.querySelectorAll('[data-copiar-nome]').forEach(e => e.addEventListener('click', async () => { if (urlNotifOnvio && await copiarTexto(e.dataset.copiarNome)) toast(`Nome copiado: cole na busca das notificações do Onvio (${e.dataset.copiarNome})`); else if (!urlNotifOnvio) toast('Abra uma vez Configurações › Notificações dos usuários do escritório no Onvio para a extensão aprender o endereço.', 'warn'); }));
+  v.querySelectorAll('[data-ver]').forEach(e => e.addEventListener('click', () => verNoPortal(e.dataset.ver)));
   v.querySelectorAll('[data-corrigir-um]').forEach(e => e.addEventListener('click', () => corrigirNomesAgora(e, { docId: e.dataset.corrigirUm })));
   v.querySelectorAll('[data-corrigir-manual]').forEach(e => e.addEventListener('click', () => corrigirManual(e, e.dataset.corrigirManual)));
   v.querySelectorAll('[data-lixeira-um]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.nome, false, e.dataset.lixeiraUm)));
@@ -774,9 +835,11 @@ if (camada) {
   batida(); setInterval(batida, 3000);
   $('fechar').addEventListener('click', fechar);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').classList.contains('open')) fechar(); });
+  // "Voltar à extensão" da barra do Onvio: só da página do Onvio que contém este quadro
+  window.addEventListener('message', e => { if (e.source === parent && e.origin === 'https://onvio.com.br' && e.data && e.data.tipo === 'controlmon-voltar') irParaLinha(voltaSegura(e.data)); });
 }
 Promise.all([loadConfig(), loadSnapshot(), loadSnapshotCompleto()]).then(([c, sn, comp]) => {
-  cfg = c; snap = sn; snapCompleto = comp || (sn && sn.fonte === 'onvio' && !sn.lendo && !sn.parcial ? sn : null); recompute(); setTimeout(() => render(true), 300);
+  cfg = c; snap = sn; snapCompleto = comp || (sn && sn.fonte === 'onvio' && !sn.lendo && !sn.parcial ? sn : null); recompute(); setTimeout(() => { render(true); if (camada) irParaLinha(voltaDaUrl(location.search)); }, 300);
 });
 
 // A leitura automática grava a coleta e o andamento no armazenamento: o painel acompanha sozinho, sem clique.

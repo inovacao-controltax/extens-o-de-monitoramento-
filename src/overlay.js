@@ -1,6 +1,8 @@
 // Camada por cima do Onvio: uma bolinha na página e, ao clicar, o hub em tela cheia (iframe da extensão).
 // Regras (as mesmas do Control Onvio): nunca abre sozinha (só com clique de verdade, atalho ou ícone), não lê a página,
 // não usa rede, não roda na visão do cliente. Fechar só esconde: uma coleta em andamento continua por trás.
+// Única exceção de leitura: no "Ver no portal" a camada procura na tela só o nome do item pedido, para desenhar o contorno por cima
+// (nada é guardado nem enviado, e a página do Onvio não é alterada).
 (() => {
   if (window.top !== window || window.__controlMonCamada) return;
   const NO_GESTTA = location.hostname === 'app.gestta.com.br';
@@ -23,12 +25,33 @@
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
     #av{position:absolute;top:0;left:0;right:0;z-index:2;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:14px 16px;background:#7A1F12;color:#fff;font:600 14px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+    #vp{pointer-events:auto;position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;background:#fff;color:#101820;border:1px solid #C9D3DC;border-top:4px solid #3C659B;border-radius:8px;box-shadow:0 10px 32px rgba(16,24,32,.28),0 2px 6px rgba(16,24,32,.18);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:14px 16px 14px}
+    #vp[hidden],#hl[hidden]{display:none}
+    #vp.cima{bottom:auto;top:20px}
+    #vp .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+    #vp .eti{display:inline-flex;align-items:center;gap:6px;color:#3C659B;font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+    #vp .eti svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    #vp .tit{font-weight:700;font-size:15px;flex:1;min-width:0}
+    #vp dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0 0 8px}
+    #vp dt{color:#47545F;font-size:13px} #vp dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+    #vp .mud{margin:0 0 8px;padding:8px 10px;background:#DCE8F1;border-radius:4px;font-weight:600;overflow-wrap:anywhere}
+    #vp .st{margin:0 0 10px;color:#47545F;font-size:13px;display:flex;gap:8px;align-items:baseline}
+    #vp .st i{flex:none;width:8px;height:8px;border-radius:50%;background:#B5530C;display:inline-block;transform:translateY(-1px)} #vp .st.ok i{background:#2E7D4F} #vp .st.no i{background:#7A8791}
+    #vp .bts{display:flex;gap:8px;flex-wrap:wrap}
+    #vp button{font:600 13.5px system-ui,sans-serif;height:36px;padding:0 14px;border-radius:4px;cursor:pointer;border:1px solid #C9D3DC;background:#fff;color:#101820}
+    #vp button.p{background:#3C659B;border-color:#3C659B;color:#fff} #vp button.p:hover{background:#335789} #vp button:not(.p):hover{background:#F5F8FA}
+    #vp button.f{margin-left:auto;border-color:transparent;color:#47545F} 
+    #vp button:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px}
+    #hl{position:fixed;pointer-events:none;border:3px solid #3C659B;border-radius:6px;box-shadow:0 0 0 4px rgba(60,101,155,.28);animation:pul 1.4s ease-in-out infinite}
+    @keyframes pul{50%{box-shadow:0 0 0 9px rgba(60,101,155,.12)}}
+    @media (prefers-reduced-motion:reduce){#hl{animation:none}}
     #av[hidden]{display:none} #av button{font:700 13px system-ui,sans-serif;padding:8px 14px;border-radius:4px;border:1px solid #fff;background:#fff;color:#7A1F12;cursor:pointer} #av button.s{background:transparent;color:#fff}
   </style>
   <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"><span id="n" hidden></span></button>
-  <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"><div id="av" hidden role="alert"><span id="avt"></span><button type="button" id="avr">Recarregar a página</button><button type="button" id="avf" class="s">Fechar</button></div></div>`;
+  <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"><div id="av" hidden role="alert"><span id="avt"></span><button type="button" id="avr">Recarregar a página</button><button type="button" id="avf" class="s">Fechar</button></div></div>
+  <div id="hl" hidden></div><section id="vp" hidden aria-label="Vendo no portal"></section>`;
   document.documentElement.appendChild(host);
-  const b = root.getElementById('b'), v = root.getElementById('v'), nBadge = root.getElementById('n'), av = root.getElementById('av');
+  const b = root.getElementById('b'), v = root.getElementById('v'), nBadge = root.getElementById('n'), av = root.getElementById('av'), vp = root.getElementById('vp'), hl = root.getElementById('hl');
   let frame = null, ultimoBatimento = 0, abertoEm = 0, vigia = null;
   // Depois de a extensão ser atualizada ou recarregada com esta página aberta, este script fica "órfão": o endereço do painel deixa de existir
   // e o Chrome mostra "Este arquivo pode ter sido movido, editado ou excluído". Em vez disso, avisa e oferece recarregar a página.
@@ -51,15 +74,18 @@
   }
 
   const aberto = () => !v.hidden;
-  function abrir() {
+  // volta = { k, id, corrigir }: quem veio do "Ver no portal" volta para a mesma linha (e, se pediu, a correção dela abre com a confirmação de sempre)
+  function abrir(volta) {
     if (!vivo()) return avisarOrfao();
+    esconderBarra();
     if (!frame) {
       frame = document.createElement('iframe');
       frame.title = 'Hub de Monitoramento do Portal';
       frame.allow = 'clipboard-write';      // "Copiar relatório" e "Copiar texto" funcionarem dentro do quadro
-      frame.src = chrome.runtime.getURL('hub/hub.html?camada=1');
+      const q = volta ? `&volta=${encodeURIComponent(volta.k)}&linha=${encodeURIComponent(volta.id || '')}${volta.corrigir ? '&corrigir=1' : ''}` : '';
+      frame.src = chrome.runtime.getURL('hub/hub.html?camada=1' + q);
       v.appendChild(frame);
-    }
+    } else if (volta) { try { frame.contentWindow.postMessage({ tipo: 'controlmon-voltar', k: volta.k, id: volta.id || '', corrigir: !!volta.corrigir }, ORIGEM); } catch (e) { /* quadro recarregando */ } }
     v.hidden = false; b.hidden = true; abertoEm = Date.now(); ultimoBatimento = abertoEm;
     if (!vigia) vigia = setInterval(() => {      // o painel avisa que está vivo a cada 3 s; sem aviso (ou sem extensão) por muito tempo, mostra a saída
       if (v.hidden || !av.hidden) return;
@@ -67,7 +93,7 @@
     }, 2000);
     setTimeout(() => { try { frame.focus(); } catch (e) { /* sem foco */ } }, 50);
   }
-  function fechar() { v.hidden = true; b.hidden = false; }
+  function fechar() { v.hidden = true; b.hidden = !vp.hidden; }
   const alternar = () => (aberto() ? fechar() : abrir());
 
   // Clique de verdade (nunca um clique forjado pela página) abre; arrastar só muda a posição.
@@ -94,9 +120,111 @@
   window.addEventListener('message', e => {
     if (!(frame && e.source === frame.contentWindow && e.origin === ORIGEM && e.data)) return;
     if (e.data.tipo === 'controlmon-fechar') fechar();
+    if (e.data.tipo === 'controlmon-ver' && !NO_GESTTA) verNoPortal(e.data.alvo);
     if (e.data.tipo === 'controlmon-vivo') { ultimoBatimento = Date.now(); if (!av.hidden && vivo()) av.hidden = true; }
   });
-  chrome.runtime.onMessage.addListener(m => { if (m && m.tipo === 'controlmon-alternar') alternar(); });
+  chrome.runtime.onMessage.addListener(m => { if (m && m.tipo === 'controlmon-alternar') alternar(); if (m && m.tipo === 'controlmon-ver' && !NO_GESTTA) verNoPortal(m.alvo); });
+
+  // ---- "Ver no portal" (0.37.0) ----
+  // A camada sai da frente, o Onvio daqui vai até o item (pelo endereço que o próprio Onvio dá) e esta barra diz o que vai mudar.
+  // "Voltar e corrigir" volta à mesma linha e abre a correção dela, que continua pedindo a confirmação de sempre: daqui nada é escrito.
+  let ver = null, barra = null, laco = null;      // barra = { alvo, el, t0, rolou }
+  const escH = x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const OLHO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  function esconderBarra(guardado = true) {
+    if (laco) { clearInterval(laco); laco = null; }
+    barra = null; vp.hidden = true; hl.hidden = true; vp.innerHTML = '';
+    if (v.hidden) b.hidden = false;
+    if (guardado && ver) { try { chrome.storage.local.remove(ver.CHAVE_VER); } catch (e) { /* extensão atualizada */ } }
+  }
+  function estadoBusca(cls, texto) {
+    const st = vp.querySelector('.st'); if (!st) return;
+    if (st.dataset.cls === cls && st.dataset.t === texto) return;
+    st.dataset.cls = cls; st.dataset.t = texto; st.className = 'st ' + cls; st.innerHTML = `<i></i><span>${escH(texto)}</span>`;
+  }
+  // O nome do item no texto da tela (o que estiver visível; o igual ganha do parecido). Devolve a linha da lista, se for uma linha curta.
+  function acharNaTela(nome) {
+    if (!ver || !document.body) return null;
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let melhor = null, nota = 0;
+    for (let n = w.nextNode(), i = 0; n && i < 40000; n = w.nextNode(), i++) {
+      const t = n.nodeValue; if (!t || t.length < 2 || t.length > 400) continue;
+      const c = ver.casaTexto(t, nome); if (!c || c <= nota) continue;
+      const el = n.parentElement; if (!el) continue;
+      const r = el.getBoundingClientRect(); if (!r.width || !r.height) continue;
+      melhor = el; nota = c; if (c === 2) break;
+    }
+    if (!melhor) return null;
+    const linha = melhor.closest('tr,[role="row"],li');
+    if (linha) { const r = linha.getBoundingClientRect(); if (r.height && r.height <= 120) return linha; }
+    return melhor;
+  }
+  function posicionar() {
+    if (!barra || !barra.el || !barra.el.isConnected) { hl.hidden = true; return; }
+    const r = barra.el.getBoundingClientRect();
+    if (!r.width || !r.height || r.bottom < 0 || r.top > innerHeight) { hl.hidden = true; return; }
+    hl.hidden = false; hl.style.left = (r.left - 5) + 'px'; hl.style.top = (r.top - 5) + 'px'; hl.style.width = (r.width + 10) + 'px'; hl.style.height = (r.height + 10) + 'px';
+    // a barra nunca cobre o item: se ele está na metade de baixo da tela, a barra vai para o alto
+    const cima = r.top + r.height / 2 > innerHeight / 2;
+    if (vp.classList.contains('cima') !== cima) vp.classList.toggle('cima', cima);
+  }
+  function procurar() {
+    if (!barra) return;
+    const a = barra.alvo;
+    if (!a.destaque) return;
+    if (!barra.el || !barra.el.isConnected) {
+      barra.el = acharNaTela(a.destaque);
+      if (barra.el && !barra.rolou) { barra.rolou = true; try { barra.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } }
+    }
+    posicionar();
+    if (barra.el) estadoBusca('ok', `Em destaque na tela (contorno azul): ${a.destaque}`);
+    else if (Date.now() - barra.t0 > 20000) estadoBusca('no', `"${a.destaque}" não apareceu nesta tela. Role a lista ou procure pelo nome${a.copiado ? ' (já está copiado: Ctrl+V na busca do Onvio)' : ''}.`);
+    else estadoBusca('', `Procurando "${a.destaque}" na tela do Onvio…`);
+  }
+  addEventListener('scroll', () => { if (barra) posicionar(); }, true);
+  addEventListener('resize', () => { if (barra) posicionar(); });
+  function mostrarBarra(alvo, pendente) {
+    if (laco) { clearInterval(laco); laco = null; }
+    barra = { alvo, el: null, t0: Date.now(), rolou: false };
+    const linhas = alvo.linhas.map(([r, x]) => `<dt>${escH(r)}</dt><dd>${escH(x)}</dd>`).join('');
+    const aviso = pendente ? 'Para mostrar este item o Onvio precisa recarregar esta página, e a leitura em andamento recomeça depois.' : !alvo.url ? (alvo.semUrl || 'Ainda não tenho o endereço deste item no Onvio. Procure à mão com os dados acima.') : '';
+    vp.innerHTML = `<div class="top"><span class="eti">${OLHO}Vendo no portal</span><span class="tit">${escH(alvo.titulo)}</span></div>
+      <dl>${linhas}</dl>${alvo.mudanca ? `<p class="mud">${escH(alvo.mudanca)}</p>` : ''}
+      <p class="st" aria-live="polite"></p>
+      <div class="bts">${pendente ? '<button type="button" class="p" data-a="recarregar">Recarregar e mostrar</button>' : ''}${alvo.acao && !pendente ? `<button type="button" class="p" data-a="corrigir">${escH(alvo.acao)}</button>` : ''}<button type="button" data-a="voltar">Voltar à extensão</button><button type="button" class="f" data-a="ficar" title="Esconde esta barra; a bolinha abre a extensão de novo">Ficar no Onvio</button></div>`;
+    vp.hidden = false; b.hidden = true;
+    if (aviso) estadoBusca('no', aviso + (alvo.copiado ? ' O nome já está copiado: Ctrl+V na busca do Onvio.' : ''));
+    else if (alvo.destaque) { procurar(); laco = setInterval(procurar, 500); }
+    else estadoBusca('ok', alvo.copiado ? 'O nome já está copiado: Ctrl+V na busca do Onvio.' : 'Esta é a tela do item no Onvio.');
+    vp.querySelectorAll('[data-a]').forEach(x => x.addEventListener('click', e => {
+      if (!e.isTrusted) return;          // só o clique de verdade da pessoa
+      const acao = x.dataset.a, a = barra && barra.alvo; if (!a) return;
+      if (acao === 'recarregar') { try { chrome.storage.local.set({ [ver.CHAVE_VER]: { alvo: a, em: Date.now() } }).then(() => location.assign(a.url)); } catch (e2) { location.assign(a.url); } return; }
+      if (acao === 'ficar') return esconderBarra();
+      abrir({ k: a.k, id: a.id, corrigir: acao === 'corrigir' });
+    }));
+    setTimeout(() => { const p = vp.querySelector('button.p') || vp.querySelector('button'); try { p && p.focus({ preventScroll: true }); } catch (e) { /* sem foco */ } }, 50);
+  }
+  async function leituraAndando() {
+    try { const e = (await chrome.storage.local.get('monitor-coleta-estado'))['monitor-coleta-estado']; return !!(e && e.estado === 'rodando' && Date.now() - e.em < 2 * 60 * 1000); } catch (x) { return false; }
+  }
+  async function verNoPortal(bruto) {
+    if (!vivo()) return avisarOrfao();
+    if (!ver) { try { ver = await import(chrome.runtime.getURL('src/ver-portal.js')); } catch (e) { return; } }
+    const alvo = ver.alvoSeguro(bruto); if (!alvo) return;
+    fechar();
+    const modo = ver.comoNavegar(location.href, alvo.url);
+    if (modo === 'abrir' && await leituraAndando()) return mostrarBarra(alvo, true);       // recarregar agora interromperia a leitura: a pessoa decide
+    mostrarBarra(alvo);
+    if (modo === 'hash') location.hash = new URL(alvo.url).hash;
+    else if (modo === 'abrir') { try { await chrome.storage.local.set({ [ver.CHAVE_VER]: { alvo, em: Date.now() } }); } catch (e) { /* sem storage: a barra não volta depois da recarga */ } location.assign(alvo.url); }
+  }
+  // Depois da recarga que o "Ver no portal" pediu, a barra volta sozinha nesta página (até 2 min).
+  import(chrome.runtime.getURL('src/ver-portal.js')).then(async m => {
+    ver = m;
+    const g = (await chrome.storage.local.get(m.CHAVE_VER))[m.CHAVE_VER];
+    if (g && m.pedidoValeAqui(g, location.href)) { const a = m.alvoSeguro(g.alvo); if (a) mostrarBarra(a); }
+  }).catch(() => { /* extensão atualizada */ });
 
   // Ponto vermelho com o número de pendências NOVAS ainda não vistas (histórico, fase 6). Só mostra; quem marca como vista é o painel.
   const marcaNovas = h => { const n = ((h && h.novas) || []).filter(x => !x.visto).length; nBadge.hidden = !n; nBadge.textContent = n > 99 ? '99+' : String(n); b.title = n ? `Hub de Monitoramento · ${n} pendência${n > 1 ? 's' : ''} nova${n > 1 ? 's' : ''} (Alt+Shift+M)` : 'Hub de Monitoramento (Alt+Shift+M)'; };

@@ -1,5 +1,6 @@
 // Abre o hub POR CIMA do Onvio (camada) quando a guia de agora é do Onvio; fora dele, numa guia própria.
 import { leituraPermitida } from './onvio-reader.js';
+import { alvoSeguro, CHAVE_VER } from './ver-portal.js';
 const HUB = 'hub/hub.html';
 const ehOnvio = url => { try { const u = new URL(url); return u.origin === 'https://onvio.com.br' && !/^\/clientcenter(\/|$)/i.test(u.pathname); } catch (e) { return false; } };
 
@@ -24,6 +25,27 @@ async function guiaDeAgora() { const [t] = await chrome.tabs.query({ active: tru
 
 chrome.action.onClicked.addListener(async tab => { try { await alternarNaGuia(tab); } catch (e) { console.error('abrir hub', e); } });
 chrome.commands.onCommand.addListener(async cmd => { if (cmd === 'alternar-camada') { try { await alternarNaGuia(await guiaDeAgora()); } catch (e) { console.error('atalho', e); } } });
+
+// "Ver no portal" pedido pelo painel aberto FORA do Onvio (guia própria ou camada do Gestta): leva a aba do Onvio até o item e mostra lá a
+// barra do que vai mudar (src/overlay.js). Só de uma página do painel da extensão; o pedido é conferido de novo (src/ver-portal.js).
+chrome.runtime.onMessage.addListener((msg, sender, responder) => {
+  if (!msg || msg.tipo !== 'ver-no-portal') return;
+  (async () => {
+    try {
+      if (sender.id !== chrome.runtime.id || !String(sender.url || '').startsWith(chrome.runtime.getURL('hub/'))) return responder({ ok: false, msg: 'Pedido recusado.' });
+      const alvo = alvoSeguro(msg.alvo); if (!alvo) return responder({ ok: false, msg: 'Pedido inválido.' });
+      const abas = (await chrome.tabs.query({ url: 'https://onvio.com.br/*' })).filter(t => ehOnvio(t.url)).sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+      const aba = abas[0];
+      const mostrar = async t => { await chrome.tabs.update(t.id, { active: true }); await chrome.windows.update(t.windowId, { focused: true }); };
+      if (aba) { try { await chrome.tabs.sendMessage(aba.id, { tipo: 'controlmon-ver', alvo }); await mostrar(aba); return responder({ ok: true }); } catch (e) { /* aba sem a camada: segue abaixo */ } }
+      if (!alvo.url) return responder({ ok: false, msg: 'Abra o Onvio numa aba e tente de novo.' });
+      await chrome.storage.local.set({ [CHAVE_VER]: { alvo, em: Date.now() } });
+      if (aba) { await chrome.tabs.update(aba.id, { url: alvo.url }); await mostrar(aba); } else await chrome.tabs.create({ url: alvo.url });
+      responder({ ok: true });
+    } catch (e) { responder({ ok: false, msg: String(e && e.message || e) }); }
+  })();
+  return true;
+});
 
 // Leitura no mundo da página, a pedido do script que já roda NA aba do Onvio (reserva, quando a leitura de dentro da página falha).
 // Só GET, só rotas da lista fechada, só para a aba que pediu e só se ela for o Onvio do escritório.
