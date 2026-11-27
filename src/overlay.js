@@ -16,14 +16,22 @@
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     *{box-sizing:border-box}
-    /* a bolinha no desenho da do Control Onvio (círculo de 48 px com o logo num círculo de 34 px), com as cores trocadas: branca por fora, preta por dentro (Josué, 27/11/2026) */
-    #b{pointer-events:auto;position:fixed;right:20px;bottom:24px;width:48px;height:48px;padding:0;border:0;border-radius:50%;background:#fff;display:grid;place-items:center;cursor:grab;box-shadow:0 2px 6px rgba(16,24,32,.22),0 10px 24px rgba(16,24,32,.28);touch-action:none;transition:transform .15s ease,box-shadow .2s ease}
-    #b .mk{width:34px;height:34px;border-radius:50%;background:#0E151B;display:grid;place-items:center;pointer-events:none}
-    #b img{width:17px;height:21px;pointer-events:none;display:block}
-    #b.lendo{box-shadow:0 0 0 3px #B5530C,0 2px 6px rgba(16,24,32,.22),0 10px 24px rgba(16,24,32,.28)}
-    #n{position:absolute;top:-8px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#C2000C;color:#fff;font:700 11.5px/20px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 0 0 2px #fff}
+    /* 0.37.3 (Josué, 27/11/2026: "o control onvio não é uma bolinha, é um retângulo com pontas arredondadas que parece sair da tela"): a aba do
+       Control Onvio, presa na borda direita (parada, só a marca à vista; com o mouse, desliza para fora e diz o estado; a faixa da esquerda segue a
+       situação), com as cores trocadas ("branco com o fundo preto"): aba branca e a marca no círculo preto. Arrasta só para cima e para baixo. */
+    #b{--faixa:#6BAAC9;pointer-events:auto;position:fixed;right:0;bottom:24px;height:48px;display:flex;align-items:center;gap:10px;padding:0 16px 0 8px;border:0;border-radius:14px 0 0 14px;background:#fff;color:#101820;cursor:pointer;text-align:left;font:inherit;touch-action:none;box-shadow:-3px 4px 14px rgba(16,24,32,.28),inset 0 0 0 1px rgba(16,24,32,.12);transform:translateX(calc(100% - 52px));transition:transform .22s ease,box-shadow .15s ease}
+    #b::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--faixa)}
+    #b:hover,#b:focus-visible,#b.mostra,#b.arr{transform:translateX(0);box-shadow:-6px 8px 22px rgba(16,24,32,.34),inset 0 0 0 1px rgba(16,24,32,.12)}
+    #b.lendo{--faixa:#B5530C} #b.novas{--faixa:#C2000C}
+    #b .mk{position:relative;flex:none;width:34px;height:34px;border-radius:50%;background:#0E151B;display:grid;place-items:center;pointer-events:none}
+    #b img{width:17px;height:21px;display:block}
+    #b .tx{display:flex;flex-direction:column;gap:1px;line-height:1.2;white-space:nowrap;pointer-events:none}
+    #b .tx b{font:600 13px system-ui,-apple-system,"Segoe UI",sans-serif;color:#101820}
+    #b .tx small{font:500 11.5px system-ui,-apple-system,"Segoe UI",sans-serif;color:#47545F}
+    #n{position:absolute;top:-7px;left:-6px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:#C2000C;color:#fff;font:700 11.5px/18px system-ui,sans-serif;text-align:center;box-shadow:0 0 0 2px #fff}
     #n[hidden]{display:none}
-    #b:hover{transform:scale(1.1)} #b:focus-visible{outline:2px solid #6BAAC9;outline-offset:3px} #b.arr{cursor:grabbing;transform:none}
+    #b:focus-visible{outline:2px solid #6BAAC9;outline-offset:2px} #b.arr{cursor:grabbing}
+    @media (prefers-reduced-motion:reduce){#b{transition:none}}
     #v{pointer-events:auto;position:fixed;inset:0;background:#0B1015}
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
@@ -50,7 +58,7 @@
     @media (prefers-reduced-motion:reduce){#hl{animation:none}}
     #av[hidden]{display:none} #av button{font:700 13px system-ui,sans-serif;padding:8px 14px;border-radius:4px;border:1px solid #fff;background:#fff;color:#7A1F12;cursor:pointer} #av button.s{background:transparent;color:#fff}
   </style>
-  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><span class="mk"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"></span><span id="n" hidden></span></button>
+  <button id="b" type="button" aria-label="Abrir o Hub de Monitoramento" title="Hub de Monitoramento (Alt+Shift+M)"><span class="mk"><img alt="" src="${chrome.runtime.getURL('hub/logo.svg')}"><span id="n" hidden></span></span><span class="tx"><b>Monitoramento</b><small id="bs">Portal do Cliente</small></span></button>
   <div id="v" hidden role="dialog" aria-modal="true" aria-label="Hub de Monitoramento do Portal"><div id="av" hidden role="alert"><span id="avt"></span><button type="button" id="avr">Recarregar a página</button><button type="button" id="avf" class="s">Fechar</button></div></div>
   <div id="hl" hidden></div><section id="vp" hidden aria-label="Vendo no portal"></section>`;
   document.documentElement.appendChild(host);
@@ -99,24 +107,25 @@
   function fechar() { v.hidden = true; b.hidden = !vp.hidden; }
   const alternar = () => (aberto() ? fechar() : abrir());
 
-  // Clique de verdade (nunca um clique forjado pela página) abre; arrastar só muda a posição.
+  // Clique de verdade (nunca um clique forjado pela página) abre; arrastar só muda a altura (a aba fica sempre na borda direita).
   let arr = null;
-  b.addEventListener('pointerdown', e => { if (!e.isTrusted) return; arr = { x: e.clientX, y: e.clientY, r: innerWidth - b.getBoundingClientRect().right, bt: innerHeight - b.getBoundingClientRect().bottom, mov: false }; b.setPointerCapture(e.pointerId); });
+  const altura = v => Math.max(4, Math.min(innerHeight - 52, v));
+  b.addEventListener('pointerdown', e => { if (!e.isTrusted) return; arr = { x: e.clientX, y: e.clientY, bt: innerHeight - b.getBoundingClientRect().bottom, mov: false }; b.setPointerCapture(e.pointerId); });
   b.addEventListener('pointermove', e => {
     if (!arr) return;
-    const dx = e.clientX - arr.x, dy = e.clientY - arr.y;
-    if (!arr.mov && Math.hypot(dx, dy) < 5) return;
+    const dy = e.clientY - arr.y;
+    if (!arr.mov && Math.hypot(e.clientX - arr.x, dy) < 5) return;
     arr.mov = true; b.classList.add('arr');
-    b.style.right = Math.max(4, Math.min(innerWidth - 52, arr.r - dx)) + 'px';
-    b.style.bottom = Math.max(4, Math.min(innerHeight - 52, arr.bt - dy)) + 'px';
+    b.style.bottom = altura(arr.bt - dy) + 'px';
   });
   b.addEventListener('pointerup', e => {
     const moveu = arr && arr.mov; b.classList.remove('arr'); arr = null;
-    if (moveu) { try { chrome.storage.local.set({ posBolinhaMonitor: { right: b.style.right, bottom: b.style.bottom } }); } catch (x) { /* sem storage */ } return; }
+    if (moveu) { try { chrome.storage.local.set({ posBolinhaMonitor: { bottom: b.style.bottom } }); } catch (x) { /* sem storage */ } return; }
     if (e.isTrusted) abrir();
   });
+  b.addEventListener('pointercancel', () => { b.classList.remove('arr'); arr = null; });
   b.addEventListener('keydown', e => { if (e.isTrusted && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); abrir(); } });
-  try { chrome.storage.local.get('posBolinhaMonitor').then(r => { const p = r && r.posBolinhaMonitor; if (p) { b.style.right = p.right; b.style.bottom = p.bottom; } }); } catch (e) { /* sem storage */ }
+  try { chrome.storage.local.get('posBolinhaMonitor').then(r => { const p = r && r.posBolinhaMonitor, y = p && parseFloat(p.bottom); if (y >= 0) b.style.bottom = altura(y) + 'px'; }); } catch (e) { /* sem storage */ }
 
   window.addEventListener('keydown', e => { if (aberto() && e.key === 'Escape') fechar(); }, true);
   // O hub (dentro do quadro) pede para fechar. Só vale da janela do nosso quadro e da origem da extensão.
@@ -231,17 +240,32 @@
     if (g && m.pedidoValeAqui(g, location.href)) { const a = m.alvoSeguro(g.alvo); if (a) mostrarBarra(a); }
   }).catch(() => { /* extensão atualizada */ });
 
-  // Ponto vermelho com o número de pendências NOVAS ainda não vistas (histórico, fase 6). Só mostra; quem marca como vista é o painel.
-  const marcaNovas = h => { const n = ((h && h.novas) || []).filter(x => !x.visto).length; nBadge.hidden = !n; nBadge.textContent = n > 99 ? '99+' : String(n); b.title = n ? `Hub de Monitoramento · ${n} pendência${n > 1 ? 's' : ''} nova${n > 1 ? 's' : ''} (Alt+Shift+M)` : 'Hub de Monitoramento (Alt+Shift+M)'; };
+  // A aba diz o estado (como a do Control Onvio): número de pendências NOVAS ainda não vistas (histórico, fase 6; só mostra, quem marca como vista
+  // é o painel) e a leitura em andamento. Faixa da esquerda: vermelha com novas, laranja lendo, azul em dia. Novas chegando: a aba sai por 4 s.
+  const sub = root.getElementById('bs'), dica = 'Hub de Monitoramento (Alt+Shift+M)';
+  let nNovas = null, lendo = false, msgLeitura = '', tMostra = null;
+  const plural = (n, a, b2) => `${n > 99 ? '99+' : n} ${n === 1 ? a : b2}`;
+  function atualizarAba() {
+    const n = nNovas || 0;
+    b.classList.toggle('novas', n > 0); b.classList.toggle('lendo', lendo && !n);
+    nBadge.hidden = !n; nBadge.textContent = n > 99 ? '99+' : String(n);
+    sub.textContent = n ? plural(n, 'pendência nova', 'pendências novas') + (lendo ? ' · lendo…' : '') : lendo ? 'Lendo o Onvio…' : 'Portal do Cliente';
+    b.title = `${dica}${n ? `\n${plural(n, 'pendência nova', 'pendências novas')}` : ''}${msgLeitura ? `\n${msgLeitura}` : ''}`;
+  }
+  const marcaNovas = h => {
+    const n = ((h && h.novas) || []).filter(x => !x.visto).length, antes = nNovas;
+    nNovas = n; atualizarAba();
+    if (antes !== null && n > antes && !matchMedia('(prefers-reduced-motion: reduce)').matches) { b.classList.add('mostra'); clearTimeout(tMostra); tMostra = setTimeout(() => b.classList.remove('mostra'), 4000); }
+  };
   try {
     chrome.storage.local.get('monitor-historico').then(r => marcaNovas(r['monitor-historico']));
     chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch['monitor-historico']) marcaNovas(ch['monitor-historico'].newValue); });
   } catch (e) { /* sem storage */ }
-  // Leitura automática do Onvio em segundo plano (sem clique). O andamento aparece na dica e na cor da bolinha.
-  const dica = 'Hub de Monitoramento (Alt+Shift+M)';   // o estado da leitura troca a dica; o contador de novas usa o título quando não há leitura em curso
+  // Leitura automática do Onvio em segundo plano (sem clique). O andamento aparece na aba (faixa laranja e "Lendo o Onvio…") e na dica.
   function estado(e) {
-    b.title = e.estado === 'rodando' ? `${dica}\nLendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? `${dica}\n${e.msg}` : e.estado === 'cliente' ? dica : `${dica}\nLeitura: ${e.msg || e.estado}`;
-    b.classList.toggle('lendo', e.estado === 'rodando');   // anel laranja enquanto lê
+    lendo = e.estado === 'rodando';
+    msgLeitura = e.estado === 'rodando' ? `Lendo o Onvio: ${e.msg || ''}` : e.estado === 'ok' ? (e.msg || '') : e.estado === 'cliente' ? '' : `Leitura: ${e.msg || e.estado}`;
+    atualizarAba();
   }
   // A leitura do Onvio só começa em página do Onvio (no Gestta quem lê é src/gestta-auto.js).
   if (!NO_GESTTA) import(chrome.runtime.getURL('src/auto-coleta.js')).then(m => m.iniciar({ onEstado: estado })).catch(() => { /* leitura automática indisponível */ });
