@@ -122,7 +122,7 @@ export function checkNotificacoesOnvio(notif, cfg = {}) {
   for (const u of (notif && notif.itens) || []) {
     if (!u || u.estado !== 'configurado' || !u.cfg || u.nome === mod.nome) continue;
     const difere = Object.keys(padrao).filter(k => k in u.cfg && u.cfg[k] !== padrao[k]);
-    if (difere.length) out.push({ nome: u.nome, campos: difere, motivo: difere.map(rotuloCampoNotif).slice(0, 4).join(', ') + (difere.length > 4 ? ` e mais ${difere.length - 4}` : ''), situacao: 'difere' });
+    if (difere.length) out.push({ nome: u.nome, contato: u.contato || '', campos: difere, motivo: difere.map(rotuloCampoNotif).slice(0, 4).join(', ') + (difere.length > 4 ? ` e mais ${difere.length - 4}` : ''), situacao: 'difere' });
   }
   return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }

@@ -11,6 +11,8 @@ import { criarFetcher, criarEscritor } from '../src/onvio-tab.js';
 import { corrigirNomes, desfazerNomes, MOTIVOS_FALHA } from '../src/corrigir-escrita.js';
 import { gruposExcluiveis, enviarPastasParaLixeira, liberadoComConteudo, MOTIVOS_PASTA } from '../src/excluir-pastas.js';
 import { confirmModal } from './config-view.js';
+import { copiarTexto } from '../src/copiar.js';
+import { corpoDoPadrao, corrigirNotificacoes, desfazerNotificacoes, MOTIVOS_NOTIF } from '../src/corrigir-notif.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
 const $ = id => document.getElementById(id);
@@ -77,6 +79,7 @@ const KEYS = Object.keys(TABS);
 
 let correcoes = { rodadas: [] };      // registro das correções feitas no Onvio (nome antigo e novo), para desfazer: monitor-correcoes
 let correcoesPastas = { rodadas: [] };   // pastas enviadas para a lixeira do Onvio: monitor-correcoes-pastas
+let correcoesNotif = { rodadas: [] };    // notificações colocadas no padrão (configuração antes e depois): monitor-correcoes-notif
 let corrigindo = null;               // { parar } enquanto uma rodada está andando
 let pastasModelo = null;     // { em, codigo, empresa, nomes }: as pastas da empresa modelo (9999), que são o padrão
 let demandaHub = null;      // { em, mapa: { raiz: [setores com demanda] } } puxado do Hub (Hub 436)
@@ -243,7 +246,7 @@ function emDiaHtml() {
 }
 function blockHtml(k) {
   const t = TABS[k], open = state.open[k];
-  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}${k === 'notificacoes' ? padraoNotifHtml() : ''}</div></section>`;
+  return `<section class="blk"><button type="button" class="blk-h" data-blk="${k}" aria-expanded="${open}"><span class="chev">${I.chev}</span><h2>${esc(t.title)}</h2><span class="count">${data(k).length}</span><span class="hint">${esc(t.hint)}</span>${I.info}</button><div class="blk-b" ${open ? '' : 'hidden'}>${k === 'nomenclatura' ? correcaoNomesHtml() + historicoCorrecoesHtml('nomes') : ''}${k === 'pastas' ? excluirPastasHtml() + historicoCorrecoesHtml('pastas') : ''}${k === 'notificacoes' ? padraoNotifHtml() + corrigirNotifHtml() + historicoCorrecoesHtml('notif') : ''}${tableHtml(k)}${k === 'semEnvio' ? silBarHtml() : ''}${k === 'pastas' ? padraoPastasHtml() : ''}</div></section>`;
 }
 
 // Resumo do dia: o que apareceu nas últimas 24 h e quanto cada monitor mudou desde ontem (do histórico; nada novo é lido nem notificado).
@@ -345,9 +348,11 @@ async function enviarParaLixeiraAgora(botao, nome, conteudo = false) {      // n
 }
 // ---- Histórico do que a extensão corrigiu no Onvio (nomes de arquivo e pastas enviadas para a lixeira), do mais novo para o mais antigo ----
 function linhasHistorico(tipo) {
-  const rodadas = (tipo === 'nomes' ? correcoes : correcoesPastas).rodadas || [], out = [];
+  const rodadas = (tipo === 'nomes' ? correcoes : tipo === 'notif' ? correcoesNotif : correcoesPastas).rodadas || [], out = [];
   for (const r of rodadas.slice().reverse()) for (const f of (r.feitos || []).slice().reverse()) {
-    out.push(tipo === 'nomes'
+    out.push(tipo === 'notif'
+      ? { em: r.em, empresa: f.nome, cnpj: '', pasta: '', antes: f.diferencas || '', depois: f.parcial ? 'padrão (só nas Solicitações)' : 'padrão', desfeita: !!r.desfeita }
+      : tipo === 'nomes'
       ? { em: r.em, empresa: f.empresa, cnpj: f.cnpj, pasta: f.pasta || '', antes: f.de, depois: f.para, desfeita: !!r.desfeita }
       : { em: r.em, empresa: f.empresa, cnpj: f.cnpj, pasta: f.nome, antes: f.nome, depois: r.comConteudo ? 'lixeira (com conteúdo)' : 'lixeira (vazia)', desfeita: false });
   }
@@ -356,14 +361,81 @@ function linhasHistorico(tipo) {
 const dataHora = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 function historicoCorrecoesHtml(tipo) {
   const l = linhasHistorico(tipo); if (!l.length) return '';
+  if (tipo === 'notif') return historicoNotifHtml(l);
   const nomes = tipo === 'nomes', lim = 100;
   const linhas = l.slice(0, lim).map(x => `<tr${x.desfeita ? ' style="opacity:.7"' : ''}><td class="num" style="white-space:nowrap">${esc(dataHora(x.em))}</td><td>${esc(x.empresa)}</td>${nomes ? `<td class="col-sec">${esc(x.pasta || '—')}</td><td>${esc(x.antes)}</td><td><b>${esc(x.depois)}</b>${x.desfeita ? ' <span class="badge s-warn">desfeita</span>' : ''}</td>` : `<td>${esc(x.pasta)}</td><td>${esc(x.depois)}</td>`}</tr>`).join('');
   const cab = nomes ? '<th>Quando</th><th>Empresa</th><th class="col-sec">Pasta</th><th>Nome antes</th><th>Nome depois</th>' : '<th>Quando</th><th>Empresa</th><th>Pasta</th><th>Destino</th>';
   return `<div class="pl-bar"><div><span class="pl-t">${nomes ? 'Nomes corrigidos' : 'Pastas enviadas para a lixeira'}</span><span class="muted"> · ${l.length} no histórico</span></div><button type="button" class="btn btn-sm" data-hist-csv="${tipo}">Baixar CSV</button></div>
     <div class="pl-corpo"><details><summary class="pl-mais" style="cursor:pointer;color:var(--ink-2);padding:6px 0">Ver o histórico${l.length > lim ? ` (as ${lim} mais recentes; o CSV tem todas)` : ''}</summary><div class="tbl-wrap"><table class="pl-tab"><thead><tr>${cab}</tr></thead><tbody>${linhas}</tbody></table></div></details></div>`;
 }
+function baixarCsvLinhas(linhas, nome) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([paraCsv(linhas)], { type: 'text/csv;charset=utf-8' }));
+  a.download = `${nome}-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(`${linhas.length - 1} linhas exportadas`);
+}
+function historicoNotifHtml(l) {
+  const linhas = l.slice(0, 100).map(x => `<tr${x.desfeita ? ' style="opacity:.7"' : ''}><td class="num" style="white-space:nowrap">${esc(dataHora(x.em))}</td><td>${esc(x.empresa)}</td><td>${esc(x.antes)}</td><td><b>${esc(x.depois)}</b>${x.desfeita ? ' <span class="badge s-warn">desfeita</span>' : ''}</td></tr>`).join('');
+  return `<div class="pl-bar"><div><span class="pl-t">Notificações colocadas no padrão</span><span class="muted"> · ${l.length} no histórico</span></div><button type="button" class="btn btn-sm" data-hist-csv="notif">Baixar CSV</button></div>
+    <div class="pl-corpo"><details><summary style="cursor:pointer;color:var(--ink-2);padding:6px 0">Ver o histórico</summary><div class="tbl-wrap"><table class="pl-tab"><thead><tr><th>Quando</th><th>Funcionário</th><th>O que estava diferente</th><th>Ficou</th></tr></thead><tbody>${linhas}</tbody></table></div></details></div>`;
+}
+// ---- Notificações: colocar quem está fora do padrão igual ao usuário modelo (só a seção Solicitações de Serviço) ----
+const primeiraNotif = () => !correcoesNotif.rodadas.some(r => r.feitos.length);
+const ultimaNotif = () => { const l = correcoesNotif.rodadas.filter(r => r.feitos.length && !r.desfeita); return l.length ? l[l.length - 1] : null; };
+function corrigirNotifHtml() {
+  const linhas = data('notificacoes').filter(r => r.situacao === 'difere'), alvo = corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos);
+  if (!linhas.length && !ultimaNotif()) return '';
+  const botao = linhas.length && alvo ? `<button type="button" class="btn btn-primary btn-sm" data-corrigir-notif>${corrigindo ? 'Parar' : primeiraNotif() ? 'Colocar 1 no padrão (teste)' : `Colocar ${Math.min(linhas.length, MAX_RODADA)} no padrão`}</button>` : '';
+  const desfazer = ultimaNotif() && !corrigindo ? `<button type="button" class="btn btn-sm" data-desfazer-notif>Desfazer a última rodada (${ultimaNotif().feitos.length})</button>` : '';
+  return `<div class="pl-bar"><div><span class="pl-t">Colocar no padrão</span><span class="muted"> · ${linhas.length} fora do padrão${!alvo && linhas.length ? ' · o padrão do modelo está incompleto: leia as notificações de novo' : ''}</span></div><span style="display:inline-flex;gap:8px">${desfazer}${botao}</span></div>
+    <p class="note-txt" style="margin:0 16px 8px">Deixa as opções de Solicitações de Serviço de cada um iguais às do modelo, um por vez, conferindo antes. CND, BOX-e, documentos e OnBalance não são mexidos. ${primeiraNotif() ? 'A primeira vez corrige <b>só 1</b>, para você conferir no Onvio.' : ''} Dá para desfazer.</p>`;
+}
+async function aplicarNotifNaLeitura(contatos, alvo, voltar) {
+  try {
+    const x = (await chrome.storage.local.get('monitor-notificacoes'))['monitor-notificacoes']; if (!x || !Array.isArray(x.itens)) return;
+    const mapa = new Map(contatos.map(c => [c.contato, c.cfg]));
+    x.itens.forEach(i => { if (i && mapa.has(i.contato)) i.cfg = { ...(i.cfg || {}), ...(voltar ? mapa.get(i.contato) : alvo) }; });
+    await chrome.storage.local.set({ 'monitor-notificacoes': x });
+  } catch (e) { /* a próxima leitura acerta */ }
+}
+async function corrigirNotifAgora(botao) {
+  if (corrigindo) { corrigindo.parar = true; botao.textContent = 'Parando…'; return; }
+  const alvo = corpoDoPadrao(nsnap && nsnap.modelo && nsnap.modelo.campos); if (!alvo) return toast('O padrão do usuário modelo ainda não foi lido por completo.', 'warn');
+  const todas = data('notificacoes').filter(r => r.situacao === 'difere'); if (!todas.length) return;
+  const primeira = primeiraNotif(), itens = primeira ? todas.slice(0, 1) : todas.slice(0, MAX_RODADA);
+  const amostra = itens.slice(0, 8).map(i => `${i.nome}\nDiferente: ${i.motivo}`).join('\n\n');
+  const okc = await confirmModal({ title: `Colocar ${itens.length} funcionário${itens.length === 1 ? '' : 's'} no padrão de notificações?`, ok: 'Colocar no padrão', text: `${amostra}${itens.length > 8 ? `\n\n… e mais ${itens.length - 8}` : ''}\n\nAs opções de Solicitações de Serviço ficam iguais às de ${nsnap.modelo.nome}. ${primeira ? 'Primeira vez: só este, para você conferir no Onvio antes de continuar. ' : ''}Um por vez, conferindo antes. Dá para desfazer.` });
+  if (!okc) return;
+  let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
+  corrigindo = { parar: false }; render(false);
+  const r = await corrigirNotificacoes(itens.map(i => ({ nome: i.nome, contato: i.contato, diferencas: i.motivo })), alvo, { ler, escrever, parar: () => corrigindo && corrigindo.parar, onProgresso: p => toast(`Colocando no padrão… ${p.ok} de ${p.total}`) });
+  corrigindo = null;
+  if (r.feitos.length) {
+    const dif = new Map(itens.map(i => [i.contato, i.motivo]));
+    correcoesNotif.rodadas = [...correcoesNotif.rodadas, { em: new Date().toISOString(), feitos: r.feitos.map(f => ({ ...f, diferencas: dif.get(f.contato) || '' })), falhas: r.falhas.length, parou: r.parou }].slice(-20);
+    try { await chrome.storage.local.set({ 'monitor-correcoes-notif': correcoesNotif }); } catch (e) { /* só o registro */ }
+    await aplicarNotifNaLeitura(r.feitos.map(f => ({ contato: f.contato })), alvo, false);
+  }
+  const motivo = r.falhas.length ? ` ${r.falhas.length} não alterado${r.falhas.length === 1 ? '' : 's'}: ${MOTIVOS_NOTIF[r.falhas[0].motivo] || r.falhas[0].motivo}.` : '';
+  toast(`${r.feitos.length} funcionário${r.feitos.length === 1 ? '' : 's'} no padrão.${r.parou === 'sem-permissao' ? ' O Onvio recusou por falta de permissão: parei.' : r.parou === 'erros' ? ' Parei depois de 3 erros seguidos.' : ''}${motivo}${primeira && r.feitos.length ? ` Confira no Onvio as notificações de ${itens[0].nome}. Se estiver certo, clique de novo para os demais.` : ''}`, r.feitos.length ? 'ok' : 'warn');
+  recompute(); render(false);
+}
+async function desfazerNotifAgora() {
+  const rod = ultimaNotif(); if (!rod) return;
+  const okc = await confirmModal({ title: `Desfazer ${rod.feitos.length} correção${rod.feitos.length === 1 ? '' : 'ões'} de notificações?`, ok: 'Desfazer', text: `${rod.feitos.slice(0, 8).map(f => f.nome).join('\n')}${rod.feitos.length > 8 ? `\n… e mais ${rod.feitos.length - 8}` : ''}\n\nCada um volta à configuração de antes, só se ainda estiver como a extensão deixou.` });
+  if (!okc) return;
+  let escrever, ler; try { [escrever, ler] = [await criarEscritor(), await criarFetcher()]; } catch (e) { return toast(String(e.message || e), 'warn'); }
+  corrigindo = { parar: false }; render(false);
+  const r = await desfazerNotificacoes(rod.feitos, { ler, escrever, parar: () => corrigindo && corrigindo.parar });
+  corrigindo = null; rod.desfeita = true;
+  try { await chrome.storage.local.set({ 'monitor-correcoes-notif': correcoesNotif }); } catch (e) { /* só o registro */ }
+  if (r.feitos.length) { const antes = new Map(rod.feitos.map(f => [f.contato, f.antes])); await aplicarNotifNaLeitura(r.feitos.map(f => ({ contato: f.contato, cfg: antes.get(f.contato) })), null, true); }
+  toast(`${r.feitos.length} funcionário${r.feitos.length === 1 ? '' : 's'} de volta à configuração de antes.${r.falhas.length ? ` ${r.falhas.length} já tinham mudado e não foram mexidos.` : ''}`, r.feitos.length ? 'ok' : 'warn');
+  recompute(); render(false);
+}
 function baixarHistoricoCsv(tipo) {
   const l = linhasHistorico(tipo), nomes = tipo === 'nomes'; if (!l.length) return toast('Nada no histórico ainda', 'warn');
+  if (tipo === 'notif') { const ls = [['Quando', 'Funcionário', 'O que estava diferente', 'Ficou', 'Desfeita']]; l.forEach(x => ls.push([dataHora(x.em), x.empresa, x.antes, x.depois, x.desfeita ? 'sim' : ''])); return baixarCsvLinhas(ls, 'notificacoes-no-padrao'); }
   const linhas = [nomes ? ['Quando', 'Empresa', 'CNPJ', 'Pasta', 'Nome antes', 'Nome depois', 'Desfeita'] : ['Quando', 'Empresa', 'CNPJ', 'Pasta', 'Destino']];
   l.forEach(x => linhas.push(nomes ? [dataHora(x.em), x.empresa, formatCnpj(x.cnpj), x.pasta, x.antes, x.depois, x.desfeita ? 'sim' : ''] : [dataHora(x.em), x.empresa, formatCnpj(x.cnpj), x.pasta, x.depois]));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([paraCsv(linhas)], { type: 'text/csv;charset=utf-8' }));
@@ -470,6 +542,8 @@ function render(animar = false) {
   v.querySelectorAll('[data-env-trein]').forEach(e => e.addEventListener('click', () => { state.soTreinadas = e.dataset.envTrein === '1'; render(false); }));
   v.querySelectorAll('#exp').forEach(e => e.addEventListener('click', exportarCsv));
   v.querySelectorAll('[data-lixeira]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeira)));
+  v.querySelectorAll('[data-corrigir-notif]').forEach(e => e.addEventListener('click', () => corrigirNotifAgora(e)));
+  v.querySelectorAll('[data-desfazer-notif]').forEach(e => e.addEventListener('click', desfazerNotifAgora));
   v.querySelectorAll('[data-hist-csv]').forEach(e => e.addEventListener('click', () => baixarHistoricoCsv(e.dataset.histCsv)));
   v.querySelectorAll('[data-lixeira-conteudo]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, e.dataset.lixeiraConteudo, true)));
   v.querySelectorAll('[data-lixeira-todas]').forEach(e => e.addEventListener('click', () => enviarParaLixeiraAgora(e, null)));
@@ -534,7 +608,7 @@ function abrirAviso(cnpj) {
     za.href = link();
   });
   d.querySelector('#av-fecha').addEventListener('click', () => d.close());
-  d.querySelector('#av-copiar').addEventListener('click', async () => { try { await navigator.clipboard.writeText(`${d.querySelector('#av-assunto').value}\n\n${d.querySelector('#av-corpo').value}`); toast('Texto copiado'); } catch (e) { toast('Não foi possível copiar', 'warn'); } });
+  d.querySelector('#av-copiar').addEventListener('click', async () => { if (await copiarTexto(`${d.querySelector('#av-assunto').value}\n\n${d.querySelector('#av-corpo').value}`)) toast('Texto copiado'); else toast('Não foi possível copiar', 'warn'); });
   za.addEventListener('click', async () => {       // registra o dia em que o rascunho foi aberto (não quer dizer que foi enviado)
     const c = { ...(await loadConfig()) }; c.avisados = { ...(c.avisados || {}), [cnpj]: new Date().toISOString().slice(0, 10) };
     if ((await saveConfig(c)).ok) { cfg = c; setTimeout(() => { render(false); d.close(); }, 300); }
@@ -633,6 +707,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', CHAVE_HIST]).then(r => { correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', 'monitor-correcoes-notif', CHAVE_HIST]).then(r => { correcoesNotif = r['monitor-correcoes-notif'] || { rodadas: [] }; correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }

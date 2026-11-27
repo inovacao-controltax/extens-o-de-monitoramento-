@@ -407,13 +407,13 @@ test('detecta os campos de "nova solicitação" por e-mail e por sistema', () =>
   assert.deepEqual(detectarCamposNovaSolicitacao(c, { email: 'tramite.email' }).email, 'tramite.email');
   assert.deepEqual(detectarCamposNovaSolicitacao([['a.b']]), { email: '', sistema: '' });
 });
-test('lê a equipe toda: 200 = configurado, 404 = padrão; sem e-mail nem id na saída', async () => {
+test('lê a equipe toda: 200 = configurado, 404 = padrão; sem e-mail na saída', async () => {
   const r = await lerNotificacoesEscritorio(fakeNotif({ n: 40, comConfig: 12 }), { paralelo: 4 });
   assert.equal(r.total, 40); assert.equal(r.itens.length, 40);
   assert.equal(r.itens.filter(i => i.estado === 'configurado').length, 12);
   assert.equal(r.itens.filter(i => i.estado === 'padrao').length, 28);
   assert.deepEqual(r.campos, { email: 'newServiceRequest.email', sistema: 'newServiceRequest.system' });
-  assert.deepEqual(Object.keys(r.itens[0]).sort(), ['cfg', 'email', 'estado', 'nome', 'sistema']);      // cfg = só as opções (sim/não), para comparar com o padrão
+  assert.deepEqual(Object.keys(r.itens[0]).sort(), ['cfg', 'contato', 'email', 'estado', 'nome', 'sistema']);      // cfg = só as opções (sim/não); contato = id interno do Onvio, para gravar a correção
   assert.ok(Object.values(r.itens[0].cfg).every(v => typeof v === 'boolean' || typeof v === 'number' || /^[A-Za-z_]{1,30}$/.test(v)));
   assert.equal(r.itens[0].email, true); assert.equal(r.itens[1].email, false); assert.equal(r.itens[1].sistema, false);
 });
