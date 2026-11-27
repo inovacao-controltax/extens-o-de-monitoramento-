@@ -34,11 +34,12 @@ const I = {
   right: ic('<path d="M9 6l6 6-6 6"/>'),
   info: ic('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'),
   x: ic('<path d="M6 6l12 12M18 6L6 18"/>'),
+  eye: ic('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
 };
 $('themeBtn').innerHTML = I.moon;
 const sino = () => { const n = naoVistas(hist).length; $('bell').innerHTML = I.bell + (n ? `<span class="cnt" style="position:absolute;top:-4px;right:-4px">${n > 99 ? '99+' : n}</span>` : ''); $('bell').style.position = 'relative'; $('bell').setAttribute('aria-label', n ? `Alertas: ${n} novas` : 'Alertas'); };
 $('bell').innerHTML = I.bell;
-$('fechar').innerHTML = I.x;
+$('fechar').innerHTML = I.eye;   // esconde a camada e mostra o Onvio que está por trás
 $('cfgBtn').innerHTML = I.gear;
 
 const secClass = s => ({ 'Pessoal': 'sec-pessoal', 'Contábil': 'sec-contabil', 'Fiscal': 'sec-fiscal', 'Financeiro': 'sec-financeiro' }[s] || 'sec-outro');
