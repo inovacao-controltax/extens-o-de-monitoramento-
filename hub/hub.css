@@ -258,6 +258,17 @@ progress{width:100%;height:8px;margin-top:var(--sp-3);accent-color:var(--blue-de
 
 /* Blocos da tela inicial na cor da situação (opção A com a barra da B): laranja atenção, vermelho atraso, verde em dia; azul = correção pronta */
 .kpi.s-warn{--c:var(--status-warn);} .kpi.s-soon{--c:var(--status-soon);} .kpi.s-late{--c:var(--status-late);} .kpi.s-ok{--c:var(--status-ok);}
+/* bloco ainda lendo (0.37.9): azul neutro, sem número; o ponto pulsa (sem movimento se o sistema pede) */
+.kpi.s-lendo{--c:var(--status-pend);}
+.kpi-n-lendo{color:var(--ink-3);display:flex;align-items:center;min-height:1.2em;}
+.gira{display:inline-block;width:26px;height:26px;border-radius:50%;border:3px solid color-mix(in srgb,var(--status-pend) 25%,transparent);border-top-color:var(--status-pend);animation:gira .9s linear infinite;}
+@keyframes gira{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){.gira{animation:none;border-color:var(--status-pend);}}
+.kpi.s-lendo .kpi-st i{animation:lendoPulsa 1.2s ease-in-out infinite;}
+@keyframes lendoPulsa{50%{opacity:.25;}}
+@media (prefers-reduced-motion:reduce){.kpi.s-lendo .kpi-st i{animation:none;}}
+.aviso-lendo{margin:0 0 var(--sp-3);padding:var(--sp-2) var(--sp-3);border-left:4px solid var(--status-pend);background:color-mix(in srgb,var(--status-pend) 8%,var(--surface));border-radius:var(--r);font-size:var(--fs-control);color:var(--ink);}
+.aviso-lendo.falhou{border-left-color:var(--status-warn);background:color-mix(in srgb,var(--status-warn) 8%,var(--surface));}
 .kpi{border-left:4px solid var(--c,var(--rule));background:color-mix(in srgb,var(--c,var(--surface)) 5%,var(--surface));}
 .kpi:hover{background:color-mix(in srgb,var(--c,var(--surface)) 9%,var(--surface));}
 .kpi-ic{width:30px;height:30px;border-radius:var(--r-lg);display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c);}

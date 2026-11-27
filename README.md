@@ -6,6 +6,8 @@ Plano por fases em `docs/ROADMAP.md`.
 ## Testar
 `chrome://extensions` → Modo do desenvolvedor → **Carregar sem compactação** → escolha esta pasta → clique no ícone da extensão.
 
+**Para atualizar sem perder o que já foi lido:** troque os arquivos **dentro da mesma pasta** e clique em **Recarregar** (↻) no cartão da extensão em `chrome://extensions`; depois recarregue (F5) as abas do Onvio. Remover a extensão ou carregar outra pasta conta como instalação nova: o Chrome apaga o que ela guardou (lista de treinados do Hub, notificações, solicitações, endereços aprendidos) e tudo é lido de novo.
+
 ## Visual
 Segue o design system do Control Hub (`inovacao-controltax/control-hub`): `hub/tokens.css` é cópia de `tokens.css` de lá, e todo CSS usa só `var(--...)`. Ao mudar o design lá, atualize a cópia aqui.
 
