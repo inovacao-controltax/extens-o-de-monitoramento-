@@ -12,7 +12,7 @@ import { corrigirNomes, desfazerNomes, MOTIVOS_FALHA } from '../src/corrigir-esc
 import { gruposExcluiveis, enviarPastasParaLixeira, liberadoComConteudo, MOTIVOS_PASTA } from '../src/excluir-pastas.js';
 import { confirmModal } from './config-view.js';
 import { copiarTexto } from '../src/copiar.js';
-import { urlDoOnvio, voltaDaUrl, voltaSegura } from '../src/ver-portal.js';
+import { urlDoOnvio, voltaDaUrl, voltaSegura, URL_NOTIF_PADRAO } from '../src/ver-portal.js';
 import { corpoDoPadrao, corrigirNotificacoes, desfazerNotificacoes, MOTIVOS_NOTIF } from '../src/corrigir-notif.js';
 import { CHAVE_HIST, naoVistas, marcarVistas, evolucao, paraCsv, resumoDoDia } from '../src/historico.js';
 
@@ -52,8 +52,8 @@ const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil'];
 // alterado antes de enviar a alteração"). Não abre link nem outra aba: a camada sai da frente e o Onvio que está por baixo vai até o item
 // (src/overlay.js), com uma barra do que vai mudar; "Voltar e corrigir" volta a esta linha e abre a correção com a confirmação de sempre.
 // O endereço é o que o próprio Onvio dá para cada pasta (staffCenterViewPath, guardado na leitura); o das notificações, o aprendido.
-let urlNotifOnvio = '', urlNotifPessoa = '';      // tela de notificações do Onvio e o modelo da tela de cada funcionário ({contato}), aprendidos pela camada (monitor-url-notif2)
-const lerUrlNotif = v => { urlNotifOnvio = urlOnvio(v && v.url); urlNotifPessoa = v && typeof v.pessoa === 'string' && v.pessoa.includes('{contato}') ? v.pessoa : ''; };
+let urlNotifOnvio = URL_NOTIF_PADRAO, urlNotifPessoa = '';      // tela de notificações do Onvio e o modelo da tela de cada funcionário ({contato}), aprendidos pela camada (monitor-url-notif2)
+const lerUrlNotif = v => { urlNotifOnvio = urlOnvio(v && v.url) || URL_NOTIF_PADRAO; urlNotifPessoa = v && typeof v.pessoa === 'string' && v.pessoa.includes('{contato}') ? v.pessoa : ''; };
 const urlOnvio = urlDoOnvio;
 const verPasta = id => urlOnvio(real() && real().ver && real().ver[id]);
 function verEmpresaUrl(cnpj) {

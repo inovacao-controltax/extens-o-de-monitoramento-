@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alvoSeguro, comoNavegar, casaTexto, pedidoValeAqui, urlDoOnvio, voltaDaUrl, voltaSegura, VALIDADE_VER_MS } from '../src/ver-portal.js';
+import { alvoSeguro, comoNavegar, casaTexto, pedidoValeAqui, urlDoOnvio, voltaDaUrl, voltaSegura, VALIDADE_VER_MS, URL_NOTIF_PADRAO } from '../src/ver-portal.js';
 
 test('"ver no portal": só endereço do Onvio do escritório', () => {
   assert.equal(urlDoOnvio('/staff/#/documents/folders/F3'), 'https://onvio.com.br/staff/#/documents/folders/F3');
@@ -11,6 +11,7 @@ test('"ver no portal": só endereço do Onvio do escritório', () => {
   assert.equal(urlDoOnvio('https://onvio.com.br.evil.com/'), '');
   assert.equal(urlDoOnvio('https://onvio.com.br/clientcenter/#/x'), '', 'nunca a visão do cliente');
   assert.equal(urlDoOnvio('javascript:alert(1)'), '');
+  assert.equal(urlDoOnvio(URL_NOTIF_PADRAO), URL_NOTIF_PADRAO, 'a tela de notificações do Portal do Cliente vale de fábrica');
 });
 
 test('"ver no portal": o pedido do painel é conferido (lista conhecida, texto curto, endereço do Onvio)', () => {
@@ -36,7 +37,11 @@ test('"ver no portal": a barra só volta depois da recarga, na página certa e p
   const g = { alvo: { url: 'https://onvio.com.br/staff/#/documents/folders/F3' }, em: 1000 };
   assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/staff/#/documents/folders/F3', 2000), true);
   assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/staff/#/home', 2000), true, 'o Onvio pode trocar o # ao abrir');
-  assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/br-portal-do-cliente/', 2000), false);
+  assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/br-portal-do-cliente/', 2000), false, 'outra aplicação do Onvio');
+  const n = { alvo: { url: URL_NOTIF_PADRAO }, em: 1000 };
+  assert.equal(pedidoValeAqui(n, 'https://onvio.com.br/br-portal-do-cliente/settings/notifications', 2000), true);
+  assert.equal(pedidoValeAqui(n, 'https://onvio.com.br/br-portal-do-cliente/settings/notifications?x=1', 2000), true, 'a página pode completar o endereço');
+  assert.equal(pedidoValeAqui(n, 'https://onvio.com.br/staff/#/documents', 2000), false);
   assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/staff/', 1000 + VALIDADE_VER_MS + 1), false);
   assert.equal(pedidoValeAqui(null, 'https://onvio.com.br/staff/', 2000), false);
 });
