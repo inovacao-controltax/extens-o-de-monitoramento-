@@ -182,7 +182,18 @@ export const tamanhoDaPagina = () => TAM_PAGINA;
 const URL_FILHOS = (tipo, id, de, n = TAM_PAGINA) => `${API}storage/v2/${tipo}/${encodeURIComponent(id)}/children?from=${de}&pageSize=${n}&sort=name:asc&containersOnly=false&trashed=false&countDocuments=false&calculateLocks=true`;
 
 /** O que a leitura deixou de pedir ao Onvio sem perder nada (para o Desempenho): zerado a cada coleta. */
-export const ESTAT = { pastasVazias: 0, paginasPoupadas: 0 };
+export const ESTAT = { pastasVazias: 0, paginasPoupadas: 0, datas: { projetos: 0, projetosOk: 0, pastas: 0, pastasOk: 0 } };
+// Medição (só contagem, nada muda na leitura): a data de alteração que o Onvio dá a uma pasta acompanha o que entra lá dentro, até nas subpastas?
+// Se sempre acompanhar, a leitura pode pular as pastas que não mudaram desde a última leitura. "ok" = nada dentro é mais novo que a data da pasta.
+const quando = v => { const t = Date.parse(v || ''); return isNaN(t) ? 0 : t; };
+const TOLERANCIA_MS = 2 * 60 * 1000;
+function contarDatas(regs) {
+  for (const g of regs) {
+    if (!g.mod || !g.max) continue;
+    const ok = g.max <= g.mod + TOLERANCIA_MS;
+    if (g.projeto) { ESTAT.datas.projetos++; if (ok) ESTAT.datas.projetosOk++; } else { ESTAT.datas.pastas++; if (ok) ESTAT.datas.pastasOk++; }
+  }
+}
 export async function filhosDe(fetcher, tipo, id, pausa) {      // pausa só no modo suave; no rápido o limite geral cuida do ritmo
   const out = [];
   for (let de = 1, n = 0; n < 20; n++) {
@@ -303,8 +314,9 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   const raizUnica = projetos.length === 1 && !ok.has(semAcento(nomeDe(projetos[0])));
   // Para ler mais rápido, só desce nos projetos conhecidos (departamentos que importam); os outros entram só pelo nome.
   const lerSo = new Set((descer || conhecidas).map(semAcento));
+  const regs = [];      // datas das pastas abertas (medição)
   const desce = p => !soConhecidas || raizUnica || lerSo.has(semAcento(nomeDe(p)));
-  const fila = projetos.filter(desce).filter(p => { if (pastaSemNada(p)) { ESTAT.pastasVazias++; return false; } return true; }).map(p => ({ tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0 }));
+  const fila = projetos.filter(desce).filter(p => { if (pastaSemNada(p)) { ESTAT.pastasVazias++; return false; } return true; }).map(p => { const g = { mod: quando(p.modifiedDate), max: 0, projeto: true }; regs.push(g); return { tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0, regs: [g] }; });
   const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema',
     // o que o Onvio informa da pasta (sem abrir): vazia? (hasChildren) e se o usuário pode excluir. null = o Onvio não disse.
     pastaId: p.id != null ? String(p.id) : '', pastaTipo: 'Projects', vazia: p.hasChildren === false ? true : p.hasChildren === true ? false : null, podeExcluir: p.permissions && typeof p.permissions.delete === 'boolean' ? p.permissions.delete : null }));
@@ -317,13 +329,16 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
     for (const { no, filhos } of lidos) {
       for (const x of filhos) {
         if (++itens > itensMax) { truncado = true; break; }
-        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (pastaSemNada(x)) { ESTAT.pastasVazias++; continue; } if (no.prof < profMax && x.id != null) fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1 }); else truncado = true; }
+        const tx = Math.max(quando(x.createdDate), quando(x.modifiedDate));
+        if (tx) for (const g of no.regs || []) if (tx > g.max) g.max = tx;
+        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (pastaSemNada(x)) { ESTAT.pastasVazias++; continue; } if (no.prof < profMax && x.id != null) { const g = { mod: quando(x.modifiedDate), max: 0 }; regs.push(g); fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1, regs: [...(no.regs || []), g] }); } else truncado = true; }
         else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), docId: x.id != null ? String(x.id) : '', pastaId: no.id != null ? String(no.id) : '', pastaTipo: no.tipo, data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
       }
       if (itens > itensMax) break;
     }
     if (itens > itensMax) break;
   }
+  if (!truncado) contarDatas(regs);      // leitura cortada não serve para medir
   return { docs, projetos: projetos.length, raizUnica, truncado, _amostra };
 }
 
@@ -338,7 +353,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   if (prioridade && prioridade.size) alvo = [...alvo.filter(ehPrior), ...alvo.filter(c => !ehPrior(c))];
   alvo = alvo.slice(0, limite > 0 ? limite : undefined);
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
-  ESTAT.pastasVazias = 0; ESTAT.paginasPoupadas = 0;
+  ESTAT.pastasVazias = 0; ESTAT.paginasPoupadas = 0; ESTAT.datas = { projetos: 0, projetosOk: 0, pastas: 0, pastasOk: 0 };
   let i = 0, fatal = null, ultimo = 0, gravando = null, recusasSessao = 0;
   // Uma recusa numa empresa não prova que a sessão caiu (o Onvio recusa pastas soltas): confere a sessão antes de parar tudo.
   // Mais de 30 recusas com a sessão viva também param (algo está errado e não adianta insistir).
@@ -390,7 +405,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   }
   if (fatal) throw fatal;
   const aut = classificarAutores(docs, { equipeIds });
-  const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut, pastasVaziasPuladas: ESTAT.pastasVazias, paginasPoupadas: ESTAT.paginasPoupadas });
+  const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut, pastasVaziasPuladas: ESTAT.pastasVazias, paginasPoupadas: ESTAT.paginasPoupadas, datasPastas: { ...ESTAT.datas } });
   return { docs, empresas, qualidade: q };
 }
 
