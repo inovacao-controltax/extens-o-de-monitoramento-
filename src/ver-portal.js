@@ -5,6 +5,9 @@
 export const TIPOS_VER = ['nomenclatura', 'pastas', 'semEnvio', 'envios', 'notificacoes'];
 export const CHAVE_VER = 'monitor-ver';           // o pedido em andamento (sobrevive à recarga da página do Onvio), vale 2 min
 export const VALIDADE_VER_MS = 2 * 60 * 1000;
+// Tela "Configuração de Notificações dos Usuários do Escritório" do Portal do Cliente: rota settings/notifications do código do Portal
+// (mapeamento do Control Onvio, mapeamento/portal-do-cliente.md). Vale de fábrica; o endereço aprendido na própria tela tem preferência.
+export const URL_NOTIF_PADRAO = 'https://onvio.com.br/br-portal-do-cliente/settings/notifications';
 const txt = (v, max = 300) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
 
 /** Endereço do Onvio do escritório (https, onvio.com.br, nunca a visão do cliente); caminho solto vira endereço do onvio.com.br. */
@@ -38,7 +41,9 @@ export function comoNavegar(atual, destino) {
 export function pedidoValeAqui(guardado, href, agora = Date.now()) {
   if (!guardado || !guardado.alvo || typeof guardado.em !== 'number' || agora - guardado.em > VALIDADE_VER_MS || agora < guardado.em - 5000) return false;
   const u = guardado.alvo.url; if (!u) return true;
-  try { const a = new URL(href), d = new URL(u); return a.origin === d.origin && a.pathname === d.pathname; } catch (e) { return false; }
+  // mesma aplicação do Onvio (staff, br-portal-do-cliente…): a página pode completar ou trocar o resto do endereço ao abrir
+  const app = p => p.split('/').filter(Boolean)[0] || '';
+  try { const a = new URL(href), d = new URL(u); return a.origin === d.origin && app(a.pathname) === app(d.pathname); } catch (e) { return false; }
 }
 
 export const normalizar = s => String(s || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
