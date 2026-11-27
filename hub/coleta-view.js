@@ -24,7 +24,7 @@ export async function renderColeta(root, { toast, onChanged }) {
     <section class="card"><h2>Notificações do escritório (Onvio)</h2>
       <p class="note-txt">O liga/desliga de notificação de cada funcionário fica no Onvio: Configurações › Notificações dos usuários do escritório (por exemplo "A cada nova Solicitação de Serviço › via e-mail / via sistema"). Para a extensão ler isso, ela precisa aprender quais chamadas essa tela faz.</p>
       <ol class="passos"><li>Clique em <b>Aprender chamadas do Onvio (2 h)</b>.</li><li>No Onvio, abra Configurações › Notificações do escritório, depois o lápis de <b>um</b> funcionário (sem salvar nada) e role a tela até o fim.</li><li>Volte aqui e clique em <b>Ver chamadas observadas do Onvio</b>.</li></ol>
-      <label class="check"><input type="checkbox" id="notifPadrao"> Contar também quem <b>nunca teve a configuração alterada</b> (no Onvio aparece com os avisos de nova solicitação desmarcados)</label>
+      <div class="field"><label for="notifModelo">Usuário modelo (a configuração dele é o padrão)</label><input id="notifModelo" autocomplete="off" placeholder="Nome como aparece no Onvio"><span class="hint">Quem tiver a configuração de notificações diferente da deste usuário aparece em Notificações. Quem nunca salvou configuração já está no padrão.</span></div>
       <div class="row"><button class="btn btn-primary" id="testarN" type="button">Testar leitura das notificações</button><button class="btn" id="aprenderO" type="button">Aprender chamadas do Onvio (2 h)</button><button class="btn btn-ghost" id="verObsO" type="button">Ver chamadas observadas do Onvio</button></div></section>
     <section class="card"><h2>Gestta · notificações</h2>
       <p class="note-txt">Lê os funcionários do Gestta pela aba do Gestta que você já abriu (só leitura) e marca quem está com o aviso de tarefa nova desligado. O token do Gestta nunca sai da página.</p>
@@ -137,8 +137,8 @@ export async function renderColeta(root, { toast, onChanged }) {
   }
   $('#verObs').addEventListener('click', () => mostrarObservadas('monitor-gestta-observadas', 'GESTTA'));
   $('#verObsO').addEventListener('click', () => mostrarObservadas('monitor-onvio-observadas', 'ONVIO'));
-  { const c0 = await loadConfig(); $('#notifPadrao').checked = !!c0.notifPadraoDesligado;
-    $('#notifPadrao').addEventListener('change', async e => { const c = await loadConfig(); c.notifPadraoDesligado = e.target.checked; const r = await saveConfig(c); toast(r.ok ? 'Salvo: a lista de notificações já considera isso' : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); }); }
+  { const c0 = await loadConfig(); $('#notifModelo').value = c0.notifModelo || '';
+    $('#notifModelo').addEventListener('change', async e => { const c = await loadConfig(); c.notifModelo = e.target.value.trim(); const r = await saveConfig(c); toast(r.ok ? 'Salvo: vale a partir da próxima leitura das notificações (ou clique em Testar leitura das notificações)' : 'Não foi possível salvar', r.ok ? 'ok' : 'warn'); }); }
   // Conferir autoria: numa amostra (treinadas primeiro), compara a decisão cliente/escritório pela lista de funcionários com a dedução.
   $('#autoria').addEventListener('click', async () => {
     $('#autoria').disabled = true; $('#rel').textContent = 'Conferindo a autoria numa amostra de empresas…'; $('#copiar').disabled = true;
@@ -159,11 +159,11 @@ export async function renderColeta(root, { toast, onChanged }) {
     try {
       const log = [], f = await criarFetcher({ onChamada: c => log.push(c) });
       const c1 = await loadConfig();
-      const lido = await lerNotificacoesEscritorio(f, { pausa, campos: { email: c1.notifCampoEmail, sistema: c1.notifCampoSistema } });   // guarda ANTES do relatório, para a aba Notificações já estar preenchida
-      await chrome.storage.local.set({ 'monitor-notificacoes': { fonte: 'onvio', em: Date.now(), total: lido.total, campos: lido.campos, itens: lido.itens } });
+      const lido = await lerNotificacoesEscritorio(f, { pausa, campos: { email: c1.notifCampoEmail, sistema: c1.notifCampoSistema }, modelo: c1.notifModelo });   // guarda ANTES do relatório, para a aba Notificações já estar preenchida
+      await chrome.storage.local.set({ 'monitor-notificacoes': { fonte: 'onvio', em: Date.now(), total: lido.total, campos: lido.campos, modelo: lido.modelo, itens: lido.itens } });
       $('#rel').textContent = 'Guardado. Montando o relatório…';
       const rep = await diagnosticarNotificacoes(f, { pausa, chamadas: log, via: f.via });
-      $('#rel').textContent = textoRelatorioNotificacoes(rep) + `\n\nGuardado para a aba Notificações: ${lido.itens.length} funcionários (${lido.itens.filter(i => i.estado === 'configurado').length} com configuração salva).`; $('#copiar').disabled = false;
+      $('#rel').textContent = textoRelatorioNotificacoes(rep) + `\n\nGuardado para a aba Notificações: ${lido.itens.length} funcionários (${lido.itens.filter(i => i.estado === 'configurado').length} com configuração salva). Usuário modelo: ${lido.modelo ? `${lido.modelo.nome} (${lido.modelo.estado === 'configurado' ? 'padrão lido' : lido.modelo.estado === 'nao-achado' ? 'não encontrado na equipe' : 'nunca salvou: abra as notificações dele no Onvio e clique em SALVAR sem mudar nada'})` : 'não definido'}.`; $('#copiar').disabled = false;
       toast(rep.passos.every(p => p.ok) ? 'Notificações: leitura funcionando' : 'Notificações: veja o relatório', rep.passos.every(p => p.ok) ? 'ok' : 'warn');
     } catch (e) { const m = e instanceof AuthError ? e.message : `Erro na leitura: ${e.message}`; $('#rel').textContent = m; toast(m, 'warn'); }
     finally { $('#testarN').disabled = false; aba(); }

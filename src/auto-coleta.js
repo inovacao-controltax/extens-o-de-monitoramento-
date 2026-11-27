@@ -96,8 +96,8 @@ async function leituraRapida(cfg, snap, avisa) {
 /** Notificações da equipe do escritório (poucas chamadas): lê toda a equipe e guarda só nome, estado e sim/não. Falha aqui não derruba a leitura das empresas. */
 async function lerNotifs(cfg) {
   const { f } = criarFetcher();
-  const r = await lerNotificacoesEscritorio(f, { pausa, campos: { email: cfg.notifCampoEmail, sistema: cfg.notifCampoSistema } });
-  await st().set({ [CHAVE_NOTIF]: { fonte: 'onvio', em: Date.now(), total: r.total, campos: r.campos, itens: r.itens } });
+  const r = await lerNotificacoesEscritorio(f, { pausa, campos: { email: cfg.notifCampoEmail, sistema: cfg.notifCampoSistema }, modelo: cfg.notifModelo });
+  await st().set({ [CHAVE_NOTIF]: { fonte: 'onvio', em: Date.now(), total: r.total, campos: r.campos, modelo: r.modelo, itens: r.itens } });
 }
 export const CHAVE_NOTIF_ESTADO = 'monitor-notificacoes-estado';
 let lendoNotif = false;

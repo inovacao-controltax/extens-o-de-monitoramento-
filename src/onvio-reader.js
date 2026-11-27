@@ -559,6 +559,19 @@ export async function listarEquipe(fetcher) {
   return [...por.values()];
 }
 /** Todos os campos verdadeiro/falso (até 4 níveis), só os caminhos. */
+/** Campos de configuração (sim/não, números e opções curtas como "ALL"/"OWN"), sem ids, datas nem textos livres: para comparar com o padrão. */
+export function camposDaConfig(o) {
+  const out = {}, FORA = /(^|\.)(id|contactId|companyId|userId|apiVersion|lang|created|updated|createdDate|modifiedDate|etag)$/i;
+  const ver = (x, cam, prof) => {
+    if (!x || typeof x !== 'object' || Array.isArray(x) || prof > 4) return;
+    for (const [k, v] of Object.entries(x)) {
+      const c = cam ? `${cam}.${k}` : k; if (FORA.test(c)) continue;
+      if (typeof v === 'boolean' || typeof v === 'number' || (typeof v === 'string' && /^[A-Za-z_]{1,30}$/.test(v))) out[c] = v;
+      else if (v && typeof v === 'object') ver(v, c, prof + 1);
+    }
+  };
+  ver(o && o.data && typeof o.data === 'object' && !Array.isArray(o.data) ? o.data : o, '', 0); return out;
+}
 export function caminhosBooleanos(o) {
   const out = [];
   const ver = (x, cam, prof) => {
@@ -623,7 +636,7 @@ export function detectarCamposNovaSolicitacao(caminhos, { email = '', sistema = 
  * Lê a configuração de notificação de TODA a equipe ativa. 200 = configurado (lê "nova Solicitação de Serviço" por e-mail e sistema);
  * 404 = sem configuração salva (padrão do Onvio). Devolve só o necessário para o monitor (nome, estado, sim/não), nunca e-mails.
  */
-export async function lerNotificacoesEscritorio(fetcher, { pausa, paralelo = 4, campos = {}, onProgresso } = {}) {
+export async function lerNotificacoesEscritorio(fetcher, { pausa, paralelo = 4, campos = {}, onProgresso, modelo = '' } = {}) {
   const equipe = await listarEquipe(fetcher), itens = new Array(equipe.length), cam = new Map();
   let prox = 0, feito = 0;
   const um = async () => {
@@ -631,7 +644,7 @@ export async function lerNotificacoesEscritorio(fetcher, { pausa, paralelo = 4, 
       const i = prox++; if (i >= equipe.length) return;
       const f = equipe[i], id = f.contactId || f.id, item = { nome: f.nome, estado: 'erro', email: null, sistema: null };
       try {
-        const d = await fetcher(URL_NOTIF(id)); item.estado = 'configurado'; item._c = caminhosBooleanos(d);
+        const d = await fetcher(URL_NOTIF(id)); item.estado = 'configurado'; item._c = caminhosBooleanos(d); item.cfg = camposDaConfig(d);
         for (const [c, v] of item._c) { const g = cam.get(c) || { sim: 0, nao: 0 }; v ? g.sim++ : g.nao++; cam.set(c, g); }
       } catch (e) { if (e instanceof AuthError) throw e; if (codigoHttp(e) === 404) item.estado = 'padrao'; }
       itens[i] = item; feito++; if (onProgresso) onProgresso({ feito, total: equipe.length });
@@ -644,7 +657,11 @@ export async function lerNotificacoesEscritorio(fetcher, { pausa, paralelo = 4, 
     if (it._c) { const m = new Map(it._c); if (sel.email) it.email = m.has(sel.email) ? m.get(sel.email) : null; if (sel.sistema) it.sistema = m.has(sel.sistema) ? m.get(sel.sistema) : null; }
     delete it._c;
   }
-  return { itens, total: equipe.length, campos: sel, booleanos: Object.fromEntries([...cam.entries()].map(([c, g]) => [c, `sim ${g.sim} · não ${g.nao}`])) };
+  // O padrão é a configuração salva do usuário modelo (Josué, 27/11/2026: a tela da Patricia Barcelos "tem que ser o padrão").
+  const nm = s => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  const m = modelo ? itens.find(it => it && nm(it.nome) === nm(modelo)) : null;
+  const modeloInfo = m ? { nome: m.nome, estado: m.estado, campos: m.estado === 'configurado' ? m.cfg : null } : (modelo ? { nome: modelo, estado: 'nao-achado', campos: null } : null);
+  return { itens, total: equipe.length, campos: sel, modelo: modeloInfo, booleanos: Object.fromEntries([...cam.entries()].map(([c, g]) => [c, `sim ${g.sim} · não ${g.nao}`])) };
 }
 export function textoRelatorioNotificacoes(rep) {
   const L = ['RELATÓRIO DAS NOTIFICAÇÕES DO ESCRITÓRIO (Onvio; sem nomes, e-mails nem valores por pessoa)', ''];
