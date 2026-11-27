@@ -315,6 +315,9 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
   // Para ler mais rápido, só desce nos projetos conhecidos (departamentos que importam); os outros entram só pelo nome.
   const lerSo = new Set((descer || conhecidas).map(semAcento));
   const regs = [];      // datas das pastas abertas (medição)
+  // "Ver no portal": o endereço que o próprio Onvio dá para cada pasta (staffCenterViewPath), só o caminho
+  const ver = {}, caminhoDe = x => { const v = x && (x.staffCenterViewPath || x.viewPath); return typeof v === 'string' && v.length <= 400 ? v : ''; };
+  for (const p of projetos) { const v = caminhoDe(p); if (v) ver[String(p.id)] = v; }
   const desce = p => !soConhecidas || raizUnica || lerSo.has(semAcento(nomeDe(p)));
   const fila = projetos.filter(desce).filter(p => { if (pastaSemNada(p)) { ESTAT.pastasVazias++; return false; } return true; }).map(p => { const g = { mod: quando(p.modifiedDate), max: 0, projeto: true }; regs.push(g); return { tipo: 'Projects', id: p.id, caminho: raizUnica ? [] : [nomeDe(p)], prof: 0, regs: [g] }; });
   const docs = projetos.filter(p => !desce(p)).map(p => ({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: nomeDe(p), arquivo: '', data: '', origem: 'sistema',
@@ -331,7 +334,7 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
         if (++itens > itensMax) { truncado = true; break; }
         const tx = Math.max(quando(x.createdDate), quando(x.modifiedDate));
         if (tx) for (const g of no.regs || []) if (tx > g.max) g.max = tx;
-        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (pastaSemNada(x)) { ESTAT.pastasVazias++; continue; } if (no.prof < profMax && x.id != null) { const g = { mod: quando(x.modifiedDate), max: 0 }; regs.push(g); fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1, regs: [...(no.regs || []), g] }); } else truncado = true; }
+        if (ehPasta(x)) { _amostra.pasta = _amostra.pasta || x; if (pastaSemNada(x)) { ESTAT.pastasVazias++; continue; } if (no.prof < profMax && x.id != null) { const g = { mod: quando(x.modifiedDate), max: 0 }; regs.push(g); { const v = caminhoDe(x); if (v) ver[String(x.id)] = v; } fila.push({ tipo: 'Folders', id: x.id, caminho: [...no.caminho, nomeDe(x)], prof: no.prof + 1, regs: [...(no.regs || []), g] }); } else truncado = true; }
         else { _amostra.doc = _amostra.doc || x; docs.push({ empresa: cliente.nome, cnpj: cliente.cnpj, pasta: no.caminho.join('/'), arquivo: nomeDe(x), docId: x.id != null ? String(x.id) : '', pastaId: no.id != null ? String(no.id) : '', pastaTipo: no.tipo, data: dia(x.createdDate || x.modifiedDate), origem: origemDoDocumento(x), autor: autorDe(x), eu: !!(x.createdBy && x.createdBy.isCurrentUser) }); }
       }
       if (itens > itensMax) break;
@@ -339,7 +342,8 @@ export async function lerEmpresa(fetcher, cliente, { pausa, profMax = 5, itensMa
     if (itens > itensMax) break;
   }
   if (!truncado) contarDatas(regs);      // leitura cortada não serve para medir
-  return { docs, projetos: projetos.length, raizUnica, truncado, _amostra };
+  const verEmpresa = projetos.map(caminhoDe).find(Boolean) || '';
+  return { docs, projetos: projetos.length, raizUnica, truncado, _amostra, ver, verEmpresa };
 }
 
 /**
@@ -355,6 +359,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   const docs = [], q = { empresas: alvo.length, lidas: 0, falhas: 0, semProjeto: 0, truncadas: 0, semCnpj: 0, docs: 0, origemIndefinida: 0 };
   ESTAT.pastasVazias = 0; ESTAT.paginasPoupadas = 0; ESTAT.datas = { projetos: 0, projetosOk: 0, pastas: 0, pastasOk: 0 };
   let i = 0, fatal = null, ultimo = 0, gravando = null, recusasSessao = 0;
+  const ver = {}, verEmpresa = {}, guardarVer = (c, r) => { Object.assign(ver, r.ver || {}); if (r.verEmpresa && c.cnpj) verEmpresa[c.cnpj] = r.verEmpresa; };
   // Uma recusa numa empresa não prova que a sessão caiu (o Onvio recusa pastas soltas): confere a sessão antes de parar tudo.
   // Mais de 30 recusas com a sessão viva também param (algo está errado e não adianta insistir).
   const sessaoViva = async () => { if (++recusasSessao > 30) return false; try { await fetcher(API + 'security/v1/session-and-bindings'); return true; } catch (e) { return false; } }; const falhadas = [], empresas = [];   // empresas = as que foram lidas (mesmo sem nenhum arquivo): para listar quem nunca enviou                       // o 1º parcial sai logo depois da 1ª empresa
@@ -365,7 +370,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       const c = alvo[i++]; if (!c) return;
       try {
         const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido });
-        docs.push(...r.docs); q.lidas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj });
+        docs.push(...r.docs); q.lidas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj }); guardarVer(c, r);
         if (!r.projetos) q.semProjeto++;
         if (r.truncado) q.truncadas++;
       } catch (e) {
@@ -379,7 +384,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
         ultimo = Date.now();
         const copia = docs.map(d => ({ ...d })); const aut = classificarAutores(copia, { equipeIds });
         // em segundo plano: a leitura segue enquanto o parcial é gravado (um de cada vez; o próximo espera este terminar)
-        gravando = Promise.resolve(onParcial({ docs: copia, empresas: empresas.slice(), qualidade: { ...resumo(copia), autores: aut } })).catch(() => {}).finally(() => { gravando = null; });
+        gravando = Promise.resolve(onParcial({ docs: copia, empresas: empresas.slice(), ver: { ...ver }, verEmpresa: { ...verEmpresa }, qualidade: { ...resumo(copia), autores: aut } })).catch(() => {}).finally(() => { gravando = null; });
         if (cadaParcialMs === 0) await gravando;      // testes que pedem todo parcial esperam cada um
       }
       if (pausa && !rapido) await pausa(paralelo > 1 ? 60 : 150);
@@ -395,7 +400,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
       for (let c; (c = restantes.shift()) && !fatal;) {
         try {
           const r = await lerEmpresa(fetcher, c, { pausa, conhecidas, soConhecidas: true, descer, rapido });
-          docs.push(...r.docs); q.lidas++; q.falhas--; q.recuperadas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj });
+          docs.push(...r.docs); q.lidas++; q.falhas--; q.recuperadas++; empresas.push({ empresa: c.nome, cnpj: c.cnpj }); guardarVer(c, r);
           if (!r.projetos) q.semProjeto++;
           if (r.truncado) q.truncadas++;
         } catch (e) { if (e instanceof AuthError && !(await sessaoViva())) { fatal = e; return; } }      // recusada de novo com a sessão viva: fica como falha
@@ -406,7 +411,7 @@ export async function coletar(fetcher, clientes, { limite = 0, pausa, onProgress
   if (fatal) throw fatal;
   const aut = classificarAutores(docs, { equipeIds });
   const fim = resumo(docs); Object.assign(q, { docs: fim.docs, origemIndefinida: fim.origemIndefinida, autores: aut, pastasVaziasPuladas: ESTAT.pastasVazias, paginasPoupadas: ESTAT.paginasPoupadas, datasPastas: { ...ESTAT.datas } });
-  return { docs, empresas, qualidade: q };
+  return { docs, empresas, qualidade: q, ver, verEmpresa };
 }
 
 // ---------- Diagnóstico (só nomes de campos, nunca valores) ----------

@@ -60,7 +60,7 @@ async function leituraCompleta(cfg, avisa) {
   const ativas = clientes.filter(c => !c.inativo && c.ids.length).length;
   const prioridade = new Set([...(cfg.trained || []).map(t => t.cnpj), ...raizesParaLer(cfg.trained)]);   // treinadas e seus outros estabelecimentos (mesma raiz) primeiro
   const equipeIds = await equipeSegura(f);
-  const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, empresas: r.empresas || [], totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
+  const montar = (r, parcial) => ({ fonte: 'onvio', coletadoEm: Date.now(), docs: r.docs, empresas: r.empresas || [], ver: r.ver || {}, verEmpresa: r.verEmpresa || {}, totalEmpresas: ativas, qualidade: r.qualidade, parcial, lendo: parcial, falhaCnd: falhaCnd || '', auto: true, via: base.via || '' });
   const t0 = Date.now();
   avisa({ estado: 'rodando', feito: 0, total: ativas, msg: `0 de ${ativas} empresas` });
   const r = await coletar(f, clientes, { limite: 0, pausa, conhecidas: cfg.allowedFolders, descer: DEPARTAMENTOS_LIDOS, paralelo: PARALELO, rapido: true, prioridade, equipeIds,
@@ -87,7 +87,7 @@ async function leituraRapida(cfg, snap, avisa) {
     onProgresso: p => { batida(); avisa({ estado: 'rodando', feito: p.feito, total: p.total, msg: `Atualizando treinadas: ${p.feito} de ${p.total}`, rapida: true }); } });
   const atual = await loadSnapshot();
   const base = atual && atual.fonte === 'onvio' ? atual : snap;
-  const novo = { ...base, docs: mesclarEmpresas(base.docs, r.docs, alvo.map(c => c.cnpj)), rapidaEm: Date.now() };
+  const novo = { ...base, docs: mesclarEmpresas(base.docs, r.docs, alvo.map(c => c.cnpj)), ver: { ...(base.ver || {}), ...(r.ver || {}) }, verEmpresa: { ...(base.verEmpresa || {}), ...(r.verEmpresa || {}) }, rapidaEm: Date.now() };
   await saveSnapshot(novo);
   if (!novo.lendo && !novo.parcial) await saveSnapshotCompleto(novo);
   avisa({ estado: 'ok', fimEm: Date.now(), feito: r.qualidade.lidas, total: alvo.length, msg: `Treinadas atualizadas: ${r.qualidade.lidas}`, rapida: true });
