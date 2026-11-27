@@ -129,3 +129,11 @@ Terceira correção ligada: **Colocar no padrão** em Notificações (detalhes e
 
 ## Blocos da tela inicial com cor (0.34.0)
 (Josué, 27/11/2026: "coloque cores nesses blocos, está muito morto"; escolheu no rascunho a **opção A com a barra da B**.) Cada bloco tem a cor da **situação** do monitor, como pede o DESIGN.md (cor com significado): traço de 4 px à esquerda, fundo bem leve, ícone num quadrado tingido e a etiqueta de situação com ponto (**Atenção** laranja para nomenclatura e pastas, vermelho-alaranjado para notificações; **Atrasado** vermelho para treinados sem envio; **Em dia** verde quando o número é 0). Nos monitores com correção automática (nomenclatura, pastas, notificações), uma barra mostra em **azul** quanto já tem correção pronta ("7 de 40 com correção pronta"; cinza quando nenhum).
+
+## Corrigir em cada linha (0.35.0)
+(Josué, 27/11/2026: "coloque o botão de corrigir um em cada linha" e "isso nas outras demais listas também".) Cada linha das listas tem o seu botão, com a mesma confirmação e as mesmas travas da correção em lote (um item, conferido no Onvio antes, registro e desfazer):
+- **Nomenclatura:** com proposta, a linha mostra o nome novo embaixo do atual e o botão **Corrigir**; **sem competência** (os que "precisam da sua decisão"), **Corrigir…** abre uma janela em que a pessoa **digita a competência (MM-AAAA)**; o nome novo é montado sozinho (`MM-AAAA nome atual`), dá para ajustar, e só libera Renomear se passar no padrão, não tiver barra, for diferente do atual e não existir outro igual na mesma pasta. Arquivo na raiz do departamento ou de leitura antiga mostra "—" com o motivo.
+- **Pastas fora do padrão:** **Enviar para a lixeira** nas vazias; nas `zlkx-c` com conteúdo (liberadas), **Lixeira (com conteúdo)** em vermelho.
+- **Notificações:** **Colocar no padrão** em cada funcionário.
+- **Treinados sem envio:** já tinha Avisar e Silenciar por linha.
+**Competência colada:** os recibos da DCTF Web (`Recibo_<CNPJ>_082026_40_….pdf`) passam a ter proposta: `MMAAAA` com 6 dígitos exatos entre separadores vira a competência (`08-2026 Recibo_<CNPJ>_40_….pdf`); CNPJ, data completa (8 dígitos) e mês 13 não confundem.

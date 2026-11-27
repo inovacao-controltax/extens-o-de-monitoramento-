@@ -18,6 +18,9 @@ export function competenciasNoTexto(texto) {
   while ((r = aaaaMm.exec(t))) add(+r[2], +r[1], r.index, r.index + r[0].length);
   const mmAaaa = new RegExp(`(?<![\\d])(?<!\\d${SEP})(0?[1-9]|1[0-2])${SEP}(20\\d{2})(?![\\d])`, 'g');           // 10-2026 (não 15-10-2026)
   while ((r = mmAaaa.exec(t))) add(+r[1], +r[2], r.index, r.index + r[0].length);
+  // MMAAAA colado, entre separadores (ex.: recibos da DCTF Web "Recibo_<cnpj>_082026_40_..."): só 6 dígitos exatos, nunca dentro de um número maior
+  const colado = /(?<=^|[_\s-])(0[1-9]|1[0-2])(20\d{2})(?=$|[_\s.-])/g;
+  while ((r = colado.exec(t))) add(+r[1], +r[2], r.index, r.index + r[0].length);
   const sem = sa(t), porExtenso = new RegExp(`(?<![a-z])(${Object.keys(MESES).join('|')})(?:${SEP}+(?:de${SEP}+)?)(20\\d{2})(?![\\d])`, 'g');
   while ((r = porExtenso.exec(sem))) add(MESES[r[1]], +r[2], r.index, r.index + r[0].length);       // sem acento mantém o tamanho do texto
   return out;
@@ -55,7 +58,7 @@ export function proporNome(arquivo, pasta, padrao) {
     comp = competenciaDoCaminho(pasta); de = 'pasta';
     if (!comp) return { ok: false, motivo: 'sem-competencia' };
   }
-  resto = resto.replace(/\s+/g, ' ').replace(/^[\s\-_.–—:,]+|[\s\-_.–—:,]+$/g, '').trim();
+  resto = resto.replace(/[_-]\s+[_-]/g, '_').replace(/\s+/g, ' ').replace(/^[\s\-_.–—:,]+|[\s\-_.–—:,]+$/g, '').trim();
   if (!resto) return { ok: false, motivo: 'sem-nome' };
   const novo = `${mm(comp.m)}-${comp.a} ${resto}${ext}`;
   if (padrao && !padrao.test(novo)) return { ok: false, motivo: 'sem-competencia' };       // a proposta tem de passar no padrão, senão não vale

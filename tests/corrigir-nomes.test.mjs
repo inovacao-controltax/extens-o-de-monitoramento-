@@ -42,3 +42,10 @@ test('plano: prontas, duplicados e sem identificador ficam à parte', () => {
   assert.deepEqual(r.pendentes.map(x => [x.docId || '-', x.motivo]), [['b', 'duplicado'], ['-', 'sem-id'], ['c', 'duplicado'], ['d', 'sem-competencia']]);
   assert.equal(competenciaDoCaminho('Fiscal/2026/11').m, 11);
 });
+
+test('competência colada MMAAAA entre separadores (recibos da DCTF Web); CNPJ e data completa não confundem', () => {
+  assert.equal(p('Recibo_57485131000123_082026_40_00000500005302054.pdf').novo, '08-2026 Recibo_57485131000123_40_00000500005302054.pdf');
+  assert.equal(p('NF 57485131000123.pdf').motivo, 'sem-competencia');
+  assert.equal(p('Folha_15102026.pdf').motivo, 'sem-competencia');
+  assert.equal(p('Guia 132026.pdf').motivo, 'sem-competencia');                     // mês 13 não existe
+});
