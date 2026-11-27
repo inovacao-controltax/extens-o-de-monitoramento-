@@ -156,7 +156,10 @@
     if (v.hidden) b.hidden = false;
     if (guardado && ver) { try { chrome.storage.local.remove(ver.CHAVE_VER); } catch (e) { /* extensão atualizada */ } }
   }
+  // Achado o item (ou desistindo de procurar), o pedido guardado para depois da recarga acaba: outras páginas não mostram o quadro de novo.
+  function consumirPedido() { if (!ver || !barra || barra.consumido) return; barra.consumido = true; try { chrome.storage.local.remove(ver.CHAVE_VER); } catch (e) { /* extensão atualizada */ } }
   function estadoBusca(cls, texto) {
+    if (cls === 'ok' || cls === 'no') consumirPedido();
     const st = vp.querySelector('.st'); if (!st) return;
     if (st.dataset.cls === cls && st.dataset.t === texto) return;
     st.dataset.cls = cls; st.dataset.t = texto; st.className = 'st ' + cls; st.innerHTML = `<i></i><span>${escH(texto)}</span>`;
@@ -203,7 +206,7 @@
   }
   addEventListener('scroll', () => { if (barra) posicionar(); }, true);
   addEventListener('resize', () => { if (barra) posicionar(); });
-  function mostrarBarra(alvo) {
+  function mostrarBarra(alvo, indo = false) {
     if (laco) { clearInterval(laco); laco = null; }
     barra = { alvo, el: null, t0: Date.now(), rolou: false };
     const linhas = alvo.linhas.map(([r, x]) => `<dt>${escH(r)}</dt><dd title="${escH(x)}">${escH(x)}</dd>`).join('');
@@ -214,7 +217,9 @@
       <p class="st" aria-live="polite"></p>
       <div class="bts">${alvo.acao ? `<button type="button" class="p" data-a="corrigir">${escH(alvo.acao)}</button>` : ''}<button type="button" data-a="voltar" title="Volta à mesma linha na extensão">Voltar</button></div>`;
     vp.hidden = false; b.hidden = true;
-    if (aviso) estadoBusca('no', aviso + (alvo.copiado ? ' O nome já está copiado: Ctrl+V na busca do Onvio.' : ''));
+    if (indo) estadoBusca('', 'Abrindo no Onvio…');          // a página vai recarregar: procura só depois, na página nova
+    else if (aviso) estadoBusca('no', aviso + (alvo.copiado ? ' O nome já está copiado: Ctrl+V na busca do Onvio.' : ''));
+    else if (alvo.roteiro === 'notif') { if (ver.ehPortal(location.pathname)) roteiroNotif(alvo); else estadoBusca('', 'Abrindo o Portal do Cliente…'); }
     else if (alvo.destaque) { procurar(); laco = setInterval(procurar, 500); }
     else estadoBusca('ok', alvo.copiado ? 'O nome já está copiado: Ctrl+V na busca do Onvio.' : 'Esta é a tela do item no Onvio.');
     vp.querySelectorAll('[data-a]').forEach(x => x.addEventListener('click', e => {
@@ -225,14 +230,98 @@
     }));
     setTimeout(() => { const p = vp.querySelector('button.p') || vp.querySelector('[data-a="voltar"]'); try { p && p.focus({ preventScroll: true }); } catch (e) { /* sem foco */ } }, 50);
   }
+  // ---- Roteiro das notificações (0.37.7; Josué, 27/11/2026: "ele tem que abrir o portal por baixo, ir em configurações, clicar na parte de
+  // notificações do escritório e achar o analista") ----
+  // Só cliques de NAVEGAÇÃO, e só em dois itens do menu do Portal do Cliente achados pelo texto exato ("Configurações" e o item de
+  // Notificações do Escritório, src/ver-portal.js); nada é marcado, salvo nem enviado. Depois do menu, guarda o endereço verdadeiro da tela
+  // (monitor-url-notif2) para a próxima vez ir direto. Na tela: o contorno no funcionário; se ele não aparece, escreve o nome na busca da
+  // própria tela (só preenche o campo, não aperta nenhum botão).
+  let roteiroId = 0;
+  const visivelEl = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const textoEl = el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+  function acharItem(teste) {
+    let melhor = null;
+    for (const el of document.querySelectorAll('a, button, [role="menuitem"], [role="tab"], li, span')) {
+      if (host.contains(el)) continue;
+      const t = textoEl(el); if (!t || t.length > 90 || !teste(t) || !visivelEl(el)) continue;
+      if (!melhor || melhor.contains(el)) melhor = el;           // o mais de dentro que casa: o próprio item, não o menu inteiro
+    }
+    return melhor ? (melhor.closest('a, button, [role="menuitem"], [role="tab"]') || melhor) : null;
+  }
+  function clicarNavegacao(el) {
+    for (const t of ['mouseover', 'mouseenter']) el.dispatchEvent(new MouseEvent(t, { bubbles: t === 'mouseover', cancelable: true, view: window }));
+    el.click();
+  }
+  function acharCampoBusca() {
+    for (const el of document.querySelectorAll('input')) {
+      if (host.contains(el) || !visivelEl(el) || el.disabled || el.readOnly) continue;
+      const tipo = (el.getAttribute('type') || 'text').toLowerCase(); if (tipo !== 'text' && tipo !== 'search') continue;
+      if (ver.ehCampoBusca([el.placeholder, el.getAttribute('aria-label'), el.name, el.id, el.title].filter(Boolean).join(' '))) return el;
+    }
+    return null;
+  }
+  function preencherBusca(campo, valor) {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    campo.focus(); set.call(campo, valor);
+    campo.dispatchEvent(new Event('input', { bubbles: true }));
+    campo.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: valor.slice(-1) }));
+    campo.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function procurarFuncionario(alvo, ativo) {
+    if (!ativo()) return;
+    if (laco) clearInterval(laco);
+    barra.t0 = Date.now(); barra.el = null; barra.rolou = false;
+    procurar(); laco = setInterval(procurar, 500);
+    setTimeout(() => {      // não apareceu em 4 s (lista longa ou paginada): escreve o nome na busca da própria tela
+      if (!ativo() || !barra || barra.el) return;
+      const campo = acharCampoBusca(); if (!campo) return;
+      preencherBusca(campo, alvo.destaque); barra.t0 = Date.now();
+    }, 4000);
+  }
+  async function roteiroNotif(alvo) {
+    const id = ++roteiroId, ativo = () => !!barra && barra.alvo === alvo && id === roteiroId;
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const ate = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (!ativo()) return null; const x = fn(); if (x) return x; await espera(300); } return null; };
+    const e404 = () => ver.ehPagina404(document.body ? document.body.innerText : '');
+    const caminho = u => { try { return new URL(u).pathname.replace(/\/+$/, ''); } catch (e) { return '?'; } };
+    let aprendido = null; try { aprendido = (await chrome.storage.local.get('monitor-url-notif2'))['monitor-url-notif2'] || null; } catch (e) { /* sem storage */ }
+    const aqui = () => location.pathname.replace(/\/+$/, '');
+    const naTela = () => (alvo.url !== ver.PORTAL_INICIO && aqui() === caminho(alvo.url)) || (aprendido && aprendido.url && aqui() === caminho(aprendido.url));
+    estadoBusca('', 'Abrindo o Portal do Cliente…');
+    const cfg = await ate(() => acharItem(ver.ehMenuConfig), 20000);
+    if (!ativo()) return;
+    if (naTela()) {          // o endereço aprendido: procura o funcionário e vigia a página; deu "Página não encontrada", volta pelo menu
+      procurarFuncionario(alvo, ativo);
+      const r = await ate(() => (e404() ? 'erro' : barra && barra.el ? 'achou' : null), 6000);
+      if (r !== 'erro') return;
+      if (laco) { clearInterval(laco); laco = null; }
+    }
+    if (!cfg) return estadoBusca('no', 'Não achei o menu Configurações do Portal do Cliente. Abra Configurações › Notificações do Escritório e procure pelo nome (já copiado).');
+    estadoBusca('', 'Abrindo Configurações…');
+    let item = acharItem(ver.ehMenuNotif);
+    if (!item) { clicarNavegacao(cfg); item = await ate(() => acharItem(ver.ehMenuNotif), 5000); }
+    if (!ativo()) return;
+    if (!item) return estadoBusca('no', 'Abri Configurações, mas não achei as notificações do escritório. Clique nelas e procure pelo nome (já copiado).');
+    estadoBusca('', `Abrindo ${textoEl(item)}…`);
+    const antes = location.href; clicarNavegacao(item);
+    await ate(() => location.href !== antes, 5000); await espera(500);
+    if (!ativo()) return;
+    if (location.href !== antes && !e404()) {        // guarda o endereço verdadeiro da tela: da próxima vez vai direto
+      const pessoa = aprendido && aprendido.pessoa && caminho(aprendido.url) === aqui() ? aprendido.pessoa : '';
+      try { chrome.storage.local.set({ 'monitor-url-notif2': { url: semIds(location.href), pessoa, em: Date.now(), fonte: 'menu' } }); } catch (e) { /* sem storage */ }
+    }
+    estadoBusca('', 'Procurando na tela do Onvio…');
+    procurarFuncionario(alvo, ativo);
+  }
   async function verNoPortal(bruto) {
     if (!vivo()) return avisarOrfao();
     if (!ver) { try { ver = await import(chrome.runtime.getURL('src/ver-portal.js')); } catch (e) { return; } }
     const alvo = ver.alvoSeguro(bruto); if (!alvo) return;
     fechar();
-    const modo = ver.comoNavegar(location.href, alvo.url);
+    // notificações sem endereço aprendido e já no Portal do Cliente: não recarrega, vai pelo menu desta página mesmo
+    const modo = alvo.roteiro === 'notif' && ver.ehPortal(location.pathname) && alvo.url === ver.PORTAL_INICIO ? 'ficar' : ver.comoNavegar(location.href, alvo.url);
     // vai direto, sem perguntar (Josué, 27/11/2026: "nada ainda"): se uma leitura estava andando nesta aba, ela solta a vez ao sair e recomeça depois
-    mostrarBarra(alvo);
+    mostrarBarra(alvo, modo === 'abrir');
     if (modo === 'hash') location.hash = new URL(alvo.url).hash;
     else if (modo === 'abrir') { try { await chrome.storage.local.set({ [ver.CHAVE_VER]: { alvo, em: Date.now() } }); } catch (e) { /* sem storage: a barra não volta depois da recarga */ } location.assign(alvo.url); }
   }

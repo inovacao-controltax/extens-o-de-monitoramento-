@@ -5,9 +5,20 @@
 export const TIPOS_VER = ['nomenclatura', 'pastas', 'semEnvio', 'envios', 'notificacoes'];
 export const CHAVE_VER = 'monitor-ver';           // o pedido em andamento (sobrevive à recarga da página do Onvio), vale 2 min
 export const VALIDADE_VER_MS = 2 * 60 * 1000;
-// Tela "Configuração de Notificações dos Usuários do Escritório" do Portal do Cliente: rota settings/notifications do código do Portal
-// (mapeamento do Control Onvio, mapeamento/portal-do-cliente.md). Vale de fábrica; o endereço aprendido na própria tela tem preferência.
-export const URL_NOTIF_PADRAO = 'https://onvio.com.br/br-portal-do-cliente/settings/notifications';
+// Notificações dos usuários do escritório (0.37.7; Josué, 27/11/2026: "ele tem que abrir o portal por baixo, ir em configurações, clicar na
+// parte de notificações do escritório e achar o analista"). A rota settings/notifications do código antigo dá "Página não encontrada" no
+// Onvio real; o caminho certo é o do menu. Começa por qualquer página do Portal do Cliente (todas têm o menu de cima, até a de erro).
+export const PORTAL_INICIO = 'https://onvio.com.br/br-portal-do-cliente/';
+export const ehPortal = pathname => /^\/br-portal-do-cliente(\/|$)/i.test(String(pathname || ''));
+const semAcento = s => normalizar(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+/** O item "Configurações" do menu de cima do Portal do Cliente (só o texto exato, com ou sem a setinha). */
+export const ehMenuConfig = t => /^configuracoes$/.test(semAcento(t).replace(/[^a-z]/g, ''));
+/** O item do menu das notificações dos usuários do escritório ("Notificações do Escritório" e parecidos; nunca um texto longo). */
+export const ehMenuNotif = t => { const v = semAcento(t); return v.length <= 80 && v.includes('notifica') && v.includes('escritorio'); };
+/** A página de erro do Portal ("Página não encontrada", "Código do erro: 404"). */
+export const ehPagina404 = t => /pagina nao encontrada|codigo do erro:?\s*404/.test(semAcento(String(t || '').slice(0, 5000)));
+/** Campo de busca da tela (pela dica, pelo rótulo ou pelo nome do campo). */
+export const ehCampoBusca = dica => /pesquis|busc|procur|filtr|nome/.test(semAcento(dica));
 const txt = (v, max = 300) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
 
 /** Endereço do Onvio do escritório (https, onvio.com.br, nunca a visão do cliente); caminho solto vira endereço do onvio.com.br. */
@@ -26,7 +37,7 @@ export function alvoSeguro(a) {
   const linhas = (Array.isArray(a.linhas) ? a.linhas : []).slice(0, 5)
     .map(l => (Array.isArray(l) ? [txt(l[0], 40), txt(l[1], 240)] : null)).filter(l => l && l[0] && l[1]);
   return { k: a.k, id: txt(a.id, 200), titulo: txt(a.titulo, 80), url: urlDoOnvio(a.url), linhas, mudanca: txt(a.mudanca, 240),
-    destaque: txt(a.destaque, 200), acao: txt(a.acao, 40), semUrl: txt(a.semUrl, 240), copiado: a.copiado === true };
+    destaque: txt(a.destaque, 200), acao: txt(a.acao, 40), semUrl: txt(a.semUrl, 240), copiado: a.copiado === true, roteiro: a.roteiro === 'notif' ? 'notif' : '' };
 }
 
 /** Como levar a página do Onvio ao endereço: 'ficar' (já está ou não há endereço), 'hash' (mesma página, sem recarregar) ou 'abrir'. */

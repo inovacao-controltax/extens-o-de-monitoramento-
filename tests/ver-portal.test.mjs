@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alvoSeguro, comoNavegar, casaTexto, pedidoValeAqui, urlDoOnvio, voltaDaUrl, voltaSegura, VALIDADE_VER_MS, URL_NOTIF_PADRAO } from '../src/ver-portal.js';
+import { alvoSeguro, comoNavegar, casaTexto, pedidoValeAqui, urlDoOnvio, voltaDaUrl, voltaSegura, VALIDADE_VER_MS, PORTAL_INICIO, ehPortal, ehMenuConfig, ehMenuNotif, ehPagina404, ehCampoBusca } from '../src/ver-portal.js';
 
 test('"ver no portal": só endereço do Onvio do escritório', () => {
   assert.equal(urlDoOnvio('/staff/#/documents/folders/F3'), 'https://onvio.com.br/staff/#/documents/folders/F3');
@@ -11,7 +11,7 @@ test('"ver no portal": só endereço do Onvio do escritório', () => {
   assert.equal(urlDoOnvio('https://onvio.com.br.evil.com/'), '');
   assert.equal(urlDoOnvio('https://onvio.com.br/clientcenter/#/x'), '', 'nunca a visão do cliente');
   assert.equal(urlDoOnvio('javascript:alert(1)'), '');
-  assert.equal(urlDoOnvio(URL_NOTIF_PADRAO), URL_NOTIF_PADRAO, 'a tela de notificações do Portal do Cliente vale de fábrica');
+  assert.equal(urlDoOnvio(PORTAL_INICIO), PORTAL_INICIO, 'o Portal do Cliente é o começo do caminho das notificações');
 });
 
 test('"ver no portal": o pedido do painel é conferido (lista conhecida, texto curto, endereço do Onvio)', () => {
@@ -38,7 +38,7 @@ test('"ver no portal": a barra só volta depois da recarga, na página certa e p
   assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/staff/#/documents/folders/F3', 2000), true);
   assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/staff/#/home', 2000), true, 'o Onvio pode trocar o # ao abrir');
   assert.equal(pedidoValeAqui(g, 'https://onvio.com.br/br-portal-do-cliente/', 2000), false, 'outra aplicação do Onvio');
-  const n = { alvo: { url: URL_NOTIF_PADRAO }, em: 1000 };
+  const n = { alvo: { url: PORTAL_INICIO }, em: 1000 };
   assert.equal(pedidoValeAqui(n, 'https://onvio.com.br/br-portal-do-cliente/settings/notifications', 2000), true);
   assert.equal(pedidoValeAqui(n, 'https://onvio.com.br/br-portal-do-cliente/settings/notifications?x=1', 2000), true, 'a página pode completar o endereço');
   assert.equal(pedidoValeAqui(n, 'https://onvio.com.br/staff/#/documents', 2000), false);
@@ -65,4 +65,25 @@ test('"ver no portal": a volta para a extensão só aceita lista conhecida', () 
   assert.equal(voltaDaUrl(''), null);
   assert.deepEqual(voltaSegura({ k: 'envios', id: '11444777000161', corrigir: 'sim' }), { k: 'envios', id: '11444777000161', corrigir: false });
   assert.equal(voltaSegura({ k: 'coleta' }), null);
+});
+
+test('"ver no portal" das notificações: o caminho pelo menu do Portal do Cliente', () => {
+  assert.equal(ehPortal('/br-portal-do-cliente/home'), true);
+  assert.equal(ehPortal('/br-portal-do-cliente/'), true);
+  assert.equal(ehPortal('/staff/'), false);
+  assert.equal(ehMenuConfig('Configurações'), true);
+  assert.equal(ehMenuConfig(' configuracoes ▾'), true);
+  assert.equal(ehMenuConfig('Configuração'), false, 'o "Configuração" do Onvio Gestão é outro menu');
+  assert.equal(ehMenuConfig('Configurações de Cadastro de Empregados na Folha'), false);
+  assert.equal(ehMenuNotif('Notificações do Escritório'), true);
+  assert.equal(ehMenuNotif('Configuração de Notificações dos Usuários do Escritório'), true);
+  assert.equal(ehMenuNotif('Notificações'), false, 'o sino de avisos não é a tela do escritório');
+  assert.equal(ehMenuNotif('Usuários de Clientes'), false);
+  assert.equal(ehPagina404('Página não encontrada Código do erro: 404 A página que você tentou acessar não está disponível'), true);
+  assert.equal(ehPagina404('Configuração de Notificações dos Usuários do Escritório'), false);
+  assert.equal(ehCampoBusca('Pesquisar'), true);
+  assert.equal(ehCampoBusca('Buscar funcionário'), true);
+  assert.equal(ehCampoBusca('E-mail'), false);
+  assert.equal(alvoSeguro({ k: 'notificacoes', roteiro: 'notif' }).roteiro, 'notif');
+  assert.equal(alvoSeguro({ k: 'notificacoes', roteiro: 'outro' }).roteiro, '');
 });
