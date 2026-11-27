@@ -25,22 +25,22 @@
     #v[hidden],#b[hidden]{display:none}
     iframe{width:100%;height:100%;border:0;display:block;background:#fff}
     #av{position:absolute;top:0;left:0;right:0;z-index:2;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:14px 16px;background:#7A1F12;color:#fff;font:600 14px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.35)}
-    #vp{pointer-events:auto;position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;background:#fff;color:#101820;border:1px solid #C9D3DC;border-top:4px solid #3C659B;border-radius:8px;box-shadow:0 10px 32px rgba(16,24,32,.28),0 2px 6px rgba(16,24,32,.18);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:14px 16px 14px}
+    #vp{pointer-events:auto;position:fixed;right:16px;bottom:16px;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;background:#fff;color:#101820;border:1px solid #C9D3DC;border-top:3px solid #3C659B;border-radius:8px;box-shadow:0 8px 24px rgba(16,24,32,.24),0 2px 6px rgba(16,24,32,.14);font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:10px 12px 12px}
     #vp[hidden],#hl[hidden]{display:none}
-    #vp.cima{bottom:auto;top:20px}
-    #vp .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-    #vp .eti{display:inline-flex;align-items:center;gap:6px;color:#3C659B;font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
-    #vp .eti svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    #vp .tit{font-weight:700;font-size:15px;flex:1;min-width:0}
-    #vp dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0 0 8px}
-    #vp dt{color:#47545F;font-size:13px} #vp dd{margin:0;font-weight:600;overflow-wrap:anywhere}
-    #vp .mud{margin:0 0 8px;padding:8px 10px;background:#DCE8F1;border-radius:4px;font-weight:600;overflow-wrap:anywhere}
-    #vp .st{margin:0 0 10px;color:#47545F;font-size:13px;display:flex;gap:8px;align-items:baseline}
-    #vp .st i{flex:none;width:8px;height:8px;border-radius:50%;background:#B5530C;display:inline-block;transform:translateY(-1px)} #vp .st.ok i{background:#2E7D4F} #vp .st.no i{background:#7A8791}
-    #vp .bts{display:flex;gap:8px;flex-wrap:wrap}
-    #vp button{font:600 13.5px system-ui,sans-serif;height:36px;padding:0 14px;border-radius:4px;cursor:pointer;border:1px solid #C9D3DC;background:#fff;color:#101820}
+    #vp.cima{bottom:auto;top:16px}
+    #vp .top{display:flex;align-items:center;gap:8px}
+    #vp .eti{display:inline-flex;align-items:center;gap:5px;color:#3C659B;font-weight:700;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+    #vp .eti svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    #vp .tit{font-weight:700;font-size:13.5px;margin:4px 0 6px}
+    #vp dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 10px;margin:0 0 6px;font-size:12.5px}
+    #vp dt{color:#47545F} #vp dd{margin:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #vp .mud{margin:0 0 6px;padding:5px 8px;background:#DCE8F1;border-radius:4px;font-size:12.5px;font-weight:600;overflow-wrap:anywhere}
+    #vp .st{margin:0 0 8px;color:#47545F;font-size:12px;display:flex;gap:6px;align-items:baseline}
+    #vp .st i{flex:none;width:7px;height:7px;border-radius:50%;background:#B5530C;display:inline-block;transform:translateY(-1px)} #vp .st.ok i{background:#2E7D4F} #vp .st.no i{background:#7A8791}
+    #vp .bts{display:flex;gap:6px;flex-wrap:wrap}
+    #vp button{font:600 12.5px system-ui,sans-serif;height:30px;padding:0 10px;border-radius:4px;cursor:pointer;border:1px solid #C9D3DC;background:#fff;color:#101820}
     #vp button.p{background:#3C659B;border-color:#3C659B;color:#fff} #vp button.p:hover{background:#335789} #vp button:not(.p):hover{background:#F5F8FA}
-    #vp button.f{margin-left:auto;border-color:transparent;color:#47545F} 
+    #vp button.f{margin-left:auto;height:24px;padding:0 6px;border-color:transparent;color:#47545F;font-size:12px}
     #vp button:focus-visible{outline:3px solid #8CC6EC;outline-offset:2px}
     #hl{position:fixed;pointer-events:none;border:3px solid #3C659B;border-radius:6px;box-shadow:0 0 0 4px rgba(60,101,155,.28);animation:pul 1.4s ease-in-out infinite}
     @keyframes pul{50%{box-shadow:0 0 0 9px rgba(60,101,155,.12)}}
@@ -164,8 +164,9 @@
     const r = barra.el.getBoundingClientRect();
     if (!r.width || !r.height || r.bottom < 0 || r.top > innerHeight) { hl.hidden = true; return; }
     hl.hidden = false; hl.style.left = (r.left - 5) + 'px'; hl.style.top = (r.top - 5) + 'px'; hl.style.width = (r.width + 10) + 'px'; hl.style.height = (r.height + 10) + 'px';
-    // a barra nunca cobre o item: se ele está na metade de baixo da tela, a barra vai para o alto
-    const cima = r.top + r.height / 2 > innerHeight / 2;
+    // o quadro fica no canto de baixo à direita e nunca cobre o item: se o item passa por esse canto, o quadro sobe para o canto de cima
+    const w = vp.offsetWidth + 24, h = vp.offsetHeight + 24;
+    const cima = r.right > innerWidth - w && r.bottom > innerHeight - h;
     if (vp.classList.contains('cima') !== cima) vp.classList.toggle('cima', cima);
   }
   function procurar() {
@@ -177,21 +178,22 @@
       if (barra.el && !barra.rolou) { barra.rolou = true; try { barra.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* sem rolagem */ } }
     }
     posicionar();
-    if (barra.el) estadoBusca('ok', `Em destaque na tela (contorno azul): ${a.destaque}`);
-    else if (Date.now() - barra.t0 > 20000) estadoBusca('no', `"${a.destaque}" não apareceu nesta tela. Role a lista ou procure pelo nome${a.copiado ? ' (já está copiado: Ctrl+V na busca do Onvio)' : ''}.`);
-    else estadoBusca('', `Procurando "${a.destaque}" na tela do Onvio…`);
+    if (barra.el) estadoBusca('ok', 'Em destaque na tela (contorno azul).');
+    else if (Date.now() - barra.t0 > 20000) estadoBusca('no', `Não apareceu nesta tela: role a lista ou procure pelo nome${a.copiado ? ' (já copiado: Ctrl+V na busca do Onvio)' : ''}.`);
+    else estadoBusca('', 'Procurando na tela do Onvio…');
   }
   addEventListener('scroll', () => { if (barra) posicionar(); }, true);
   addEventListener('resize', () => { if (barra) posicionar(); });
   function mostrarBarra(alvo, pendente) {
     if (laco) { clearInterval(laco); laco = null; }
     barra = { alvo, el: null, t0: Date.now(), rolou: false };
-    const linhas = alvo.linhas.map(([r, x]) => `<dt>${escH(r)}</dt><dd>${escH(x)}</dd>`).join('');
+    const linhas = alvo.linhas.map(([r, x]) => `<dt>${escH(r)}</dt><dd title="${escH(x)}">${escH(x)}</dd>`).join('');
     const aviso = pendente ? 'Para mostrar este item o Onvio precisa recarregar esta página, e a leitura em andamento recomeça depois.' : !alvo.url ? (alvo.semUrl || 'Ainda não tenho o endereço deste item no Onvio. Procure à mão com os dados acima.') : '';
-    vp.innerHTML = `<div class="top"><span class="eti">${OLHO}Vendo no portal</span><span class="tit">${escH(alvo.titulo)}</span></div>
+    vp.innerHTML = `<div class="top"><span class="eti">${OLHO}Vendo no portal</span><button type="button" class="f" data-a="ficar" title="Esconde este quadro; a bolinha abre a extensão de novo">Ficar no Onvio</button></div>
+      <div class="tit">${escH(alvo.titulo)}</div>
       <dl>${linhas}</dl>${alvo.mudanca ? `<p class="mud">${escH(alvo.mudanca)}</p>` : ''}
       <p class="st" aria-live="polite"></p>
-      <div class="bts">${pendente ? '<button type="button" class="p" data-a="recarregar">Recarregar e mostrar</button>' : ''}${alvo.acao && !pendente ? `<button type="button" class="p" data-a="corrigir">${escH(alvo.acao)}</button>` : ''}<button type="button" data-a="voltar">Voltar à extensão</button><button type="button" class="f" data-a="ficar" title="Esconde esta barra; a bolinha abre a extensão de novo">Ficar no Onvio</button></div>`;
+      <div class="bts">${pendente ? '<button type="button" class="p" data-a="recarregar">Recarregar e mostrar</button>' : ''}${alvo.acao && !pendente ? `<button type="button" class="p" data-a="corrigir">${escH(alvo.acao)}</button>` : ''}<button type="button" data-a="voltar" title="Volta à mesma linha na extensão">Voltar</button></div>`;
     vp.hidden = false; b.hidden = true;
     if (aviso) estadoBusca('no', aviso + (alvo.copiado ? ' O nome já está copiado: Ctrl+V na busca do Onvio.' : ''));
     else if (alvo.destaque) { procurar(); laco = setInterval(procurar, 500); }
@@ -203,7 +205,7 @@
       if (acao === 'ficar') return esconderBarra();
       abrir({ k: a.k, id: a.id, corrigir: acao === 'corrigir' });
     }));
-    setTimeout(() => { const p = vp.querySelector('button.p') || vp.querySelector('button'); try { p && p.focus({ preventScroll: true }); } catch (e) { /* sem foco */ } }, 50);
+    setTimeout(() => { const p = vp.querySelector('button.p') || vp.querySelector('[data-a="voltar"]'); try { p && p.focus({ preventScroll: true }); } catch (e) { /* sem foco */ } }, 50);
   }
   async function leituraAndando() {
     try { const e = (await chrome.storage.local.get('monitor-coleta-estado'))['monitor-coleta-estado']; return !!(e && e.estado === 'rodando' && Date.now() - e.em < 2 * 60 * 1000); } catch (x) { return false; }

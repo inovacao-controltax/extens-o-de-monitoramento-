@@ -48,6 +48,8 @@ export function casaTexto(visivel, procurado) {
   if (!p || !v) return 0;
   if (v === p) return 2;
   if (v.includes(p)) return v.length <= p.length + 40 ? 1 : 0;          // nome com data, tamanho ou ícone ao lado; nunca no meio de um parágrafo
+  const semExt = p.replace(/\.[a-z0-9]{1,5}$/i, '');                       // o Onvio pode mostrar o nome sem a extensão (".zip", ".pdf")
+  if (semExt !== p && semExt.length >= 4 && v.includes(semExt) && v.length <= semExt.length + 40) return 1;
   const corte = v.replace(/\s*(…|\.\.\.)$/, '');
   if (corte !== v && corte.length >= 8 && p.startsWith(corte)) return 1;
   return 0;
