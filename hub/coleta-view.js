@@ -3,6 +3,7 @@ import { listarClientes, coletar, diagnosticar, textoDoRelatorio, resumirChamada
 import { loadConfig, saveConfig, DEPARTAMENTOS_LIDOS, raizesParaLer } from '../src/config.js';
 import { loadSnapshot, saveSnapshot, clearSnapshot, loadSnapshotCompleto, duracaoDe } from '../src/snapshot.js';
 import { confirmModal } from './config-view.js';
+import { copiarTexto } from '../src/copiar.js';
 import { abaGestta, criarLeitorGestta } from '../src/gestta-tab.js';
 import { diagnosticarGestta, textoRelatorioGestta } from '../src/gestta-reader.js';
 
@@ -83,7 +84,7 @@ export async function renderColeta(root, { toast, onChanged }) {
       toast(rep.passos.every(p => p.ok) ? 'Leitura funcionando' : 'Leitura com problemas, veja o relatório', rep.passos.every(p => p.ok) ? 'ok' : 'warn');
     } catch (e) { falha(e); } finally { ocupado(false); aba(); }
   });
-  $('#copiar').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#rel').textContent); toast('Relatório copiado'); } catch (e) { toast('Não foi possível copiar. Selecione o texto e copie.', 'warn'); } });
+  $('#copiar').addEventListener('click', async () => { if (await copiarTexto($('#rel').textContent)) toast('Relatório copiado'); else toast('Não foi possível copiar. Selecione o texto e copie.', 'warn'); });
   $('#parar').addEventListener('click', () => { parar = true; $('#parar').disabled = true; });
   $('#coletar').addEventListener('click', async () => {
     const lim = Math.max(0, parseInt($('#lim').value, 10) || 0);

@@ -642,7 +642,7 @@ export async function lerNotificacoesEscritorio(fetcher, { pausa, paralelo = 4, 
   const um = async () => {
     for (;;) {
       const i = prox++; if (i >= equipe.length) return;
-      const f = equipe[i], id = f.contactId || f.id, item = { nome: f.nome, estado: 'erro', email: null, sistema: null };
+      const f = equipe[i], id = f.contactId || f.id, item = { nome: f.nome, contato: String(id || ''), estado: 'erro', email: null, sistema: null };
       try {
         const d = await fetcher(URL_NOTIF(id)); item.estado = 'configurado'; item._c = caminhosBooleanos(d); item.cfg = camposDaConfig(d);
         for (const [c, v] of item._c) { const g = cam.get(c) || { sim: 0, nao: 0 }; v ? g.sim++ : g.nao++; cam.set(c, g); }

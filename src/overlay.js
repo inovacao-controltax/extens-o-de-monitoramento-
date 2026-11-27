@@ -46,6 +46,7 @@
     if (!frame) {
       frame = document.createElement('iframe');
       frame.title = 'Hub de Monitoramento do Portal';
+      frame.allow = 'clipboard-write';      // "Copiar relatório" e "Copiar texto" funcionarem dentro do quadro
       frame.src = chrome.runtime.getURL('hub/hub.html?camada=1');
       v.appendChild(frame);
     }
