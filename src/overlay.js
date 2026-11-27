@@ -203,16 +203,16 @@
   }
   addEventListener('scroll', () => { if (barra) posicionar(); }, true);
   addEventListener('resize', () => { if (barra) posicionar(); });
-  function mostrarBarra(alvo, pendente) {
+  function mostrarBarra(alvo) {
     if (laco) { clearInterval(laco); laco = null; }
     barra = { alvo, el: null, t0: Date.now(), rolou: false };
     const linhas = alvo.linhas.map(([r, x]) => `<dt>${escH(r)}</dt><dd title="${escH(x)}">${escH(x)}</dd>`).join('');
-    const aviso = pendente ? 'Para mostrar este item o Onvio precisa recarregar esta página, e a leitura em andamento recomeça depois.' : !alvo.url ? (alvo.semUrl || 'Ainda não tenho o endereço deste item no Onvio. Procure à mão com os dados acima.') : '';
+    const aviso = !alvo.url ? (alvo.semUrl || 'Ainda não tenho o endereço deste item no Onvio. Procure à mão com os dados acima.') : '';
     vp.innerHTML = `<div class="top"><span class="eti">${OLHO}Vendo no portal</span><button type="button" class="f" data-a="ficar" title="Esconde este quadro; a bolinha abre a extensão de novo">Ficar no Onvio</button></div>
       <div class="tit">${escH(alvo.titulo)}</div>
       <dl>${linhas}</dl>${alvo.mudanca ? `<p class="mud">${escH(alvo.mudanca)}</p>` : ''}
       <p class="st" aria-live="polite"></p>
-      <div class="bts">${pendente ? '<button type="button" class="p" data-a="recarregar">Recarregar e mostrar</button>' : ''}${alvo.acao && !pendente ? `<button type="button" class="p" data-a="corrigir">${escH(alvo.acao)}</button>` : ''}<button type="button" data-a="voltar" title="Volta à mesma linha na extensão">Voltar</button></div>`;
+      <div class="bts">${alvo.acao ? `<button type="button" class="p" data-a="corrigir">${escH(alvo.acao)}</button>` : ''}<button type="button" data-a="voltar" title="Volta à mesma linha na extensão">Voltar</button></div>`;
     vp.hidden = false; b.hidden = true;
     if (aviso) estadoBusca('no', aviso + (alvo.copiado ? ' O nome já está copiado: Ctrl+V na busca do Onvio.' : ''));
     else if (alvo.destaque) { procurar(); laco = setInterval(procurar, 500); }
@@ -220,14 +220,10 @@
     vp.querySelectorAll('[data-a]').forEach(x => x.addEventListener('click', e => {
       if (!e.isTrusted) return;          // só o clique de verdade da pessoa
       const acao = x.dataset.a, a = barra && barra.alvo; if (!a) return;
-      if (acao === 'recarregar') { try { chrome.storage.local.set({ [ver.CHAVE_VER]: { alvo: a, em: Date.now() } }).then(() => location.assign(a.url)); } catch (e2) { location.assign(a.url); } return; }
       if (acao === 'ficar') return esconderBarra();
       abrir({ k: a.k, id: a.id, corrigir: acao === 'corrigir' });
     }));
     setTimeout(() => { const p = vp.querySelector('button.p') || vp.querySelector('[data-a="voltar"]'); try { p && p.focus({ preventScroll: true }); } catch (e) { /* sem foco */ } }, 50);
-  }
-  async function leituraAndando() {
-    try { const e = (await chrome.storage.local.get('monitor-coleta-estado'))['monitor-coleta-estado']; return !!(e && e.estado === 'rodando' && Date.now() - e.em < 2 * 60 * 1000); } catch (x) { return false; }
   }
   async function verNoPortal(bruto) {
     if (!vivo()) return avisarOrfao();
@@ -235,7 +231,7 @@
     const alvo = ver.alvoSeguro(bruto); if (!alvo) return;
     fechar();
     const modo = ver.comoNavegar(location.href, alvo.url);
-    if (modo === 'abrir' && await leituraAndando()) return mostrarBarra(alvo, true);       // recarregar agora interromperia a leitura: a pessoa decide
+    // vai direto, sem perguntar (Josué, 27/11/2026: "nada ainda"): se uma leitura estava andando nesta aba, ela solta a vez ao sair e recomeça depois
     mostrarBarra(alvo);
     if (modo === 'hash') location.hash = new URL(alvo.url).hash;
     else if (modo === 'abrir') { try { await chrome.storage.local.set({ [ver.CHAVE_VER]: { alvo, em: Date.now() } }); } catch (e) { /* sem storage: a barra não volta depois da recarga */ } location.assign(alvo.url); }
