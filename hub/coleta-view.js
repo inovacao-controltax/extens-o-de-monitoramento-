@@ -46,7 +46,8 @@ export async function renderColeta(root, { toast, onChanged }) {
   }
   // Quanto a última leitura completa levou e como o Onvio respondeu (para afinar a velocidade com dados reais; só números e nomes de rota).
   const desempenhoHtml = c => {
-    const d = c && c.desempenho; if (!d) return '';
+    const d = c && c.desempenho;
+    if (!d) return '<h3 class="sub-h">Desempenho da última leitura completa</h3><p class="note-txt">Aparece quando uma leitura <b>completa</b> terminar (todas as empresas). Enquanto a leitura está em andamento, ou se ela parou no meio, ainda não há números.</p>';
     const rotas = Object.entries(d.porRota || {}).map(([r, n]) => `${esc(r)} ×${n}`).join(' · ');
     return `<h3 class="sub-h">Desempenho da última leitura completa</h3><ul class="kv"><li><span>Tempo</span><b class="num">${duracaoDe(d.ms)}</b></li><li><span>Chamadas ao Onvio</span><b class="num">${d.chamadas} (${d.chamadasPorSegundo}/s)</b></li>
       <li><span>Resposta média</span><b class="num">${d.latenciaMediaMs} ms</b></li><li><span>Limite de chamadas ao mesmo tempo</span><b class="num">pico ${d.limitePico} · final ${d.limiteFinal}</b></li>
