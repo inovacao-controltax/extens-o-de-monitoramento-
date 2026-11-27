@@ -52,7 +52,8 @@ const SETORES = ['Todos', 'Pessoal', 'Fiscal', 'Contábil'];
 // alterado antes de enviar a alteração"). Não abre link nem outra aba: a camada sai da frente e o Onvio que está por baixo vai até o item
 // (src/overlay.js), com uma barra do que vai mudar; "Voltar e corrigir" volta a esta linha e abre a correção com a confirmação de sempre.
 // O endereço é o que o próprio Onvio dá para cada pasta (staffCenterViewPath, guardado na leitura); o das notificações, o aprendido.
-let urlNotifOnvio = '';      // tela de notificações do Onvio, aprendida quando a pessoa a abre (a camada guarda o endereço)
+let urlNotifOnvio = '', urlNotifPessoa = '';      // tela de notificações do Onvio e o modelo da tela de cada funcionário ({contato}), aprendidos pela camada (monitor-url-notif2)
+const lerUrlNotif = v => { urlNotifOnvio = urlOnvio(v && v.url); urlNotifPessoa = v && typeof v.pessoa === 'string' && v.pessoa.includes('{contato}') ? v.pessoa : ''; };
 const urlOnvio = urlDoOnvio;
 const verPasta = id => urlOnvio(real() && real().ver && real().ver[id]);
 function verEmpresaUrl(cnpj) {
@@ -97,9 +98,10 @@ function alvoDe(k, r) {
   }
   if (k === 'notificacoes') {
     const tem = /data-notif-um=/.test(acaoNotif(r));
-    return { k, id, titulo: 'Notificações fora do padrão', url: urlNotifOnvio, linhas: [['Funcionário', r.nome], ['Diferente do padrão', r.motivo || 'Sem aviso de tarefa nova']],
+    const urlPessoa = urlNotifPessoa && r.contato ? urlOnvio(urlNotifPessoa.replace('{contato}', encodeURIComponent(r.contato))) : '';
+    return { k, id, titulo: 'Notificações fora do padrão', url: urlPessoa || urlNotifOnvio, linhas: [['Funcionário', r.nome], ['Diferente do padrão', r.motivo || 'Sem aviso de tarefa nova']],
       mudanca: tem ? `Ao corrigir, as opções de Solicitações de Serviço ficam iguais às de ${nsnap.modelo.nome}.` : '', destaque: r.nome, acao: tem ? 'Voltar e colocar no padrão' : '',
-      semUrl: 'Abra uma vez Configurações › Notificações dos usuários do escritório no Onvio: a extensão aprende o endereço e da próxima vez vai direto.' };
+      semUrl: 'Ainda não sei o endereço da tela de notificações. No Onvio, abra Configurações › Notificações dos usuários do escritório e clique em um funcionário: a extensão aprende sozinha e, da próxima vez, vai direto.' };
   }
   const ultimo = k === 'semEnvio' ? (r.dias === null ? 'nenhum registrado' : `há ${r.dias} dias (${r.fonte || 'arquivo'})`) : (r.data ? `${fmt(r.data)}, há ${r.dias} dias (${r.fonte || 'arquivo'})` : 'nenhum registrado');
   return { k, id, titulo: k === 'semEnvio' ? 'Treinado sem envio' : 'Último uso do portal', url: verEmpresaUrl(r.cnpj),
@@ -858,7 +860,7 @@ try {
     if (ch[CHAVE_HIST]) { hist = ch[CHAVE_HIST].newValue || null; sino(); }
     if (ch['monitor-config']) loadConfig().then(c => { cfg = c; recompute(); renderNav(); renderSuave(); });      // a lista de treinados puxada sozinha em segundo plano aparece sem recarregar
     if (ch['monitor-pastas-modelo']) { pastasModelo = ch['monitor-pastas-modelo'].newValue || null; recompute(); renderSuave(); }
-    if (ch['monitor-url-notif']) { urlNotifOnvio = urlOnvio(ch['monitor-url-notif'].newValue); renderSuave(); }
+    if (ch['monitor-url-notif2']) { lerUrlNotif(ch['monitor-url-notif2'].newValue); renderSuave(); }
     if (ch[CHAVE_DEMANDA]) { demandaHub = ch[CHAVE_DEMANDA].newValue || null; recompute(); renderSuave(); }
     if (ch['monitor-solicitacoes']) { ssnap = ch['monitor-solicitacoes'].newValue || null; recompute(); renderNav(); renderSuave(); }
     if (ch['monitor-notificacoes']) nsnap = ch['monitor-notificacoes'].newValue || null;
@@ -869,6 +871,6 @@ try {
     if (ch['monitor-snapshot'] || ch['monitor-snapshot-completo'] || ch['monitor-notificacoes'] || ch['monitor-coleta-estado'] || ch['monitor-gestta'] || ch['monitor-gestta-estado']) { recompute(); atualizarPill(); renderSuave(); }
   });
   chrome.storage.local.get(['monitor-gestta', 'monitor-gestta-estado']).then(r => { gsnap = r['monitor-gestta'] || null; gestado = r['monitor-gestta-estado'] || null; recompute(); renderSuave(); });
-  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', 'monitor-correcoes-notif', 'monitor-url-notif', CHAVE_HIST]).then(r => { urlNotifOnvio = urlOnvio(r['monitor-url-notif']); correcoesNotif = r['monitor-correcoes-notif'] || { rodadas: [] }; correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
+  chrome.storage.local.get(['monitor-notificacoes', 'monitor-notificacoes-estado', 'monitor-solicitacoes', CHAVE_DEMANDA, 'monitor-pastas-modelo', 'monitor-correcoes', 'monitor-correcoes-pastas', 'monitor-correcoes-notif', 'monitor-url-notif2', CHAVE_HIST]).then(r => { lerUrlNotif(r['monitor-url-notif2']); correcoesNotif = r['monitor-correcoes-notif'] || { rodadas: [] }; correcoesPastas = r['monitor-correcoes-pastas'] || { rodadas: [] }; correcoes = r['monitor-correcoes'] || { rodadas: [] }; demandaHub = r[CHAVE_DEMANDA] || null; pastasModelo = r['monitor-pastas-modelo'] || null; hist = r[CHAVE_HIST] || null; sino(); ssnap = r['monitor-solicitacoes'] || null; nsnap = r['monitor-notificacoes'] || null; nestado = r['monitor-notificacoes-estado'] || null; recompute(); renderSuave(); });
   chrome.storage.local.get('monitor-coleta-estado').then(r => { andamento = r['monitor-coleta-estado'] || null; if (andamento) { recompute(); renderSuave(); } });
 } catch (e) { /* fora da extensão */ }
